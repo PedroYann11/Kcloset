@@ -1,0 +1,11 @@
+node_modules
+.next
+out
+build
+.env*
+.DS_Store
+Thumbs.db
+*.tsbuildinfo
+next-env.d.ts
+.vercel
+.claude
