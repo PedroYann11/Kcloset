@@ -36,6 +36,9 @@ Outros comandos: `npm run build` (build de produção), `npm start` (servir o bu
   Pinterest ("Praia", "Trabalho"), com favoritos e etiquetas.
 - **Pouca palavra na tela.** O app não explica o que a interface já mostra: sem textos
   de apoio, sem instruções de uso, sem travessões.
+- **O tema é dela.** A aba Tema personaliza as cores do app inteiro (Geral) ou só de
+  uma página por vez (Guarda-roupa, Closet, Looks, Bazar), a partir de quatro cores que
+  derivam a paleta inteira.
 
 ## Telas
 
@@ -52,6 +55,7 @@ Outros comandos: `npm run build` (build de produção), `npm start` (servir o bu
 | Estatísticas | `components/kcloset/StatsScreen.tsx` |
 | Ocasião e sugestões | `components/kcloset/OccasionScreen.tsx`, `OccasionResultScreen.tsx` |
 | K Bazar | `components/kcloset/BazaarScreen.tsx` |
+| Tema | `components/kcloset/ThemeScreen.tsx` |
 
 ## Estrutura
 
@@ -61,7 +65,7 @@ components/kcloset/      uma tela por arquivo + o orquestrador (KclosetApp)
 components/kcloset/ui/   primitivos (Chip, HeartButton, OutfitCanvas, GarmentView, ...)
 components/icons/        desenho das peças (silhuetas preenchidas) e cabide
 data/                    acervo de demonstração, famílias e ocasiões
-lib/                     paleta, localStorage, compressão de imagem, datas e sugestões
+lib/                     paleta, tema, localStorage, compressão de imagem, datas e sugestões
 types/                   tipos do domínio
 ```
 
@@ -100,6 +104,14 @@ sugestões). As telas são de apresentação, recebem dados e callbacks.
 - **Excluir peça** (`ItemDetailScreen`): a peça sai do closet, dos favoritos, do Espelho
   e dos looks salvos; look que fica sem nenhuma peça é removido junto. Peça de
   demonstração apagada fica registrada em `removedSeedIds` e não volta.
+- **Tema** (`lib/theme.ts`, `ThemeScreen`): uma receita de 4 cores (fundo, texto,
+  destaque, tom do guarda-roupa) deriva todas as variáveis CSS do app (`--c-ink`,
+  `--c-paper`, `--case-face` e as demais) nas mesmas proporções de contraste do design
+  original. Existe uma receita Geral e, por página, uma receita própria opcional que a
+  substitui só ali; `KclosetApp` calcula o escopo da tela atual e aplica as variáveis
+  derivadas como `style` no corpo do app, então nenhuma outra tela precisa saber que o
+  tema existe, ela só usa `bg-paper`, `text-ink` etc. como sempre usou. Persistido em
+  `localStorage` numa chave própria, `kcloset:theme:v1`.
 
 ## Stack
 

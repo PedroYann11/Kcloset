@@ -23,8 +23,7 @@ export function HomeScreen({ closetOpen, onToggle, onCategory, items }: HomeScre
         aria-hidden="true"
         className="pointer-events-none absolute inset-0"
         style={{
-          background:
-            "radial-gradient(ellipse at 50% 32%, rgba(239,203,203,0.14), transparent 62%)",
+          background: "radial-gradient(ellipse at 50% 32%, rgb(var(--c-blush) / 0.14), transparent 62%)",
         }}
       />
 

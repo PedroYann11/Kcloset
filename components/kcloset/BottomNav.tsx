@@ -1,13 +1,13 @@
-import { Home, Layers, Shirt, Tag } from "lucide-react";
+import { Home, Layers, Palette, Shirt, Tag } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { NavScreenId, ScreenId } from "@/types";
 
-/** Quatro abas: Favoritos virou parte de Looks. */
 const NAV_ITEMS: { id: NavScreenId; label: string; Icon: LucideIcon }[] = [
   { id: "home", label: "Home", Icon: Home },
   { id: "closet", label: "Closet", Icon: Shirt },
   { id: "looks", label: "Looks", Icon: Layers },
   { id: "bazaar", label: "Bazar", Icon: Tag },
+  { id: "theme", label: "Tema", Icon: Palette },
 ];
 
 type BottomNavProps = {
@@ -23,8 +23,8 @@ export function BottomNav({ screen, onNavigate }: BottomNavProps) {
       aria-label="Navegação principal"
     >
       <div
-        className="mx-1 mb-2 flex items-center justify-between rounded-3xl px-2 py-2"
-        style={{ background: "rgba(26,24,22,0.94)", backdropFilter: "blur(14px)" }}
+        className="mx-1 mb-2 flex items-center justify-between rounded-3xl px-1 py-2"
+        style={{ background: "rgb(var(--c-ink) / 0.94)", backdropFilter: "blur(14px)" }}
       >
         {NAV_ITEMS.map(({ id, label, Icon }) => {
           const active = screen === id;
@@ -38,13 +38,13 @@ export function BottomNav({ screen, onNavigate }: BottomNavProps) {
               aria-current={active ? "page" : undefined}
             >
               <Icon
-                size={19}
+                size={18}
                 strokeWidth={1.6}
-                color={active ? "var(--blush)" : "rgba(251,249,247,0.55)"}
+                color={active ? "var(--blush)" : "rgb(var(--c-paper) / 0.55)"}
               />
               <span
-                className="font-sans text-[9px] tracking-wide"
-                style={{ color: active ? "var(--blush)" : "rgba(251,249,247,0.55)" }}
+                className="font-sans text-[8.5px] tracking-wide"
+                style={{ color: active ? "var(--blush)" : "rgb(var(--c-paper) / 0.55)" }}
               >
                 {label}
               </span>

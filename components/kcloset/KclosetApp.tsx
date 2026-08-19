@@ -14,6 +14,7 @@ import { LooksScreen, type LooksTab } from "@/components/kcloset/LooksScreen";
 import { OccasionResultScreen } from "@/components/kcloset/OccasionResultScreen";
 import { OccasionScreen } from "@/components/kcloset/OccasionScreen";
 import { StatsScreen } from "@/components/kcloset/StatsScreen";
+import { ThemeScreen } from "@/components/kcloset/ThemeScreen";
 import { Toast } from "@/components/kcloset/ui/Toast";
 import {
   ITEMS,
@@ -26,6 +27,15 @@ import { formatDate, todayISO } from "@/lib/date";
 import { decorateItems } from "@/lib/palette";
 import { loadState, saveState } from "@/lib/storage";
 import { buildSuggestions, slotForCategory } from "@/lib/suggestions";
+import {
+  DEFAULT_THEME_STATE,
+  deriveVars,
+  loadThemeState,
+  recipeFor,
+  saveThemeState,
+  type ThemeScopeId,
+  type ThemeState,
+} from "@/lib/theme";
 import type {
   AccessoryGroup,
   Board,
@@ -43,7 +53,25 @@ import type {
 
 const EMPTY_SELECTION: BuilderSelection = { top: null, bottom: null, shoes: null, accs: [] };
 
-const NAV_SCREENS: ScreenId[] = ["home", "closet", "looks", "bazaar"];
+const NAV_SCREENS: ScreenId[] = ["home", "closet", "looks", "bazaar", "theme"];
+
+/** A que página o tema de cada tela pertence, para as cores próprias de uma
+ * página valerem também nas telas que se abrem a partir dela. */
+const SCREEN_SCOPE: Record<ScreenId, ThemeScopeId> = {
+  home: "home",
+  closet: "closet",
+  itemDetail: "closet",
+  addItem: "closet",
+  occasion: "closet",
+  occasionResult: "closet",
+  looks: "looks",
+  board: "looks",
+  lookDetail: "looks",
+  calendar: "looks",
+  stats: "looks",
+  bazaar: "bazaar",
+  theme: "global",
+};
 
 /**
  * Orquestrador do Kcloset.
@@ -86,6 +114,9 @@ export function KclosetApp() {
   const [toast, setToast] = useState<string | null>(null);
   const quotaWarned = useRef(false);
 
+  /* ---------------- tema ---------------- */
+  const [themeState, setThemeState] = useState<ThemeState>(DEFAULT_THEME_STATE);
+
   /* ---------------- persistência ---------------- */
 
   // Só depois de ler o localStorage é que passamos a gravar. Senão o primeiro
@@ -100,6 +131,7 @@ export function KclosetApp() {
       setFavItems(new Set(saved.favItems));
       setFavLooks(new Set(saved.favLooks));
     }
+    setThemeState(loadThemeState());
     setHydrated(true);
   }, []);
 
@@ -120,6 +152,11 @@ export function KclosetApp() {
       setToast("Armazenamento cheio. Apague alguma peça com foto");
     }
   }, [hydrated, userItems, looks, boards, favItems, favLooks, removedSeedIds]);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    saveThemeState(themeState);
+  }, [hydrated, themeState]);
 
   useEffect(() => {
     if (!toast) return;
@@ -428,9 +465,21 @@ export function KclosetApp() {
   // A barra só aparece depois que a porta do guarda-roupa é aberta.
   const showNav = NAV_SCREENS.includes(screen) && (screen !== "home" || closetOpen);
 
+  // O tema em uso na tela atual: a página pode ter cores próprias, senão
+  // segue o Geral. As variáveis CSS aplicadas aqui cascateiam para tudo
+  // dentro do aparelho, então nenhuma outra tela precisa saber que o tema
+  // existe.
+  const themeVars = useMemo(
+    () => deriveVars(recipeFor(themeState, SCREEN_SCOPE[screen])),
+    [themeState, screen],
+  );
+
   return (
     <div className="flex min-h-screen w-full items-start justify-center bg-night">
-      <div className="relative flex min-h-screen w-full max-w-shell flex-col bg-paper">
+      <div
+        className="relative flex min-h-screen w-full max-w-shell flex-col bg-paper"
+        style={themeVars as React.CSSProperties}
+      >
         <div
           className="flex flex-1 flex-col overflow-x-hidden"
           style={{ paddingBottom: showNav ? 88 : 0 }}
@@ -606,6 +655,8 @@ export function KclosetApp() {
               onAnnounce={() => goTo("addItem")}
             />
           )}
+
+          {screen === "theme" && <ThemeScreen state={themeState} onChange={setThemeState} />}
         </div>
 
         {showNav && <BottomNav screen={screen} onNavigate={(id: NavScreenId) => goTo(id)} />}

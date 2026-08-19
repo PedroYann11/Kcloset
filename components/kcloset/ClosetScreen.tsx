@@ -163,7 +163,7 @@ export function ClosetScreen({
               onClick={onClear}
               aria-label="Limpar o espelho"
               className="absolute right-3 top-3 flex min-h-[34px] min-w-[34px] items-center justify-center rounded-full"
-              style={{ background: "rgba(251,249,247,0.9)" }}
+              style={{ background: "rgb(var(--c-paper) / 0.9)" }}
             >
               <RotateCcw size={15} color="var(--graphite)" />
             </button>
@@ -396,7 +396,7 @@ export function ClosetScreen({
                 onClick={() => onOpenItem(item)}
                 aria-label={`Detalhes de ${item.name}`}
                 className="absolute right-1.5 top-1.5 flex min-h-[26px] min-w-[26px] items-center justify-center rounded-full"
-                style={{ background: "rgba(251,249,247,0.85)" }}
+                style={{ background: "rgb(var(--c-paper) / 0.85)" }}
               >
                 <Info size={13} color="var(--graphite)" />
               </button>

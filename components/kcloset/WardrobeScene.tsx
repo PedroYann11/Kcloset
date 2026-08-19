@@ -63,8 +63,8 @@ export function WardrobeScene({ open, onToggle, onCategory, items }: WardrobeSce
         <ellipse cx="160" cy="392" rx="136" ry="12" fill="#000" opacity="0.5" filter="url(#kc-blur-lg)" />
 
         {/* pés */}
-        <rect x="30" y="372" width="26" height="10" rx="2" fill="#8f887f" />
-        <rect x="264" y="372" width="26" height="10" rx="2" fill="#8f887f" />
+        <rect x="30" y="372" width="26" height="10" rx="2" fill="var(--case-line)" />
+        <rect x="264" y="372" width="26" height="10" rx="2" fill="var(--case-line)" />
 
         {/* carcaça */}
         <rect

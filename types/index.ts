@@ -158,10 +158,11 @@ export type ScreenId =
   | "occasion"
   | "occasionResult"
   | "bazaar"
-  | "addItem";
+  | "addItem"
+  | "theme";
 
 /** Telas que aparecem na barra inferior. */
-export type NavScreenId = Extract<ScreenId, "home" | "closet" | "looks" | "bazaar">;
+export type NavScreenId = Extract<ScreenId, "home" | "closet" | "looks" | "bazaar" | "theme">;
 
 /** Payload do formulário de cadastro de peça (sem id nem createdAt). */
 export type NewItemDraft = Omit<ClothingItem, "id" | "createdAt">;
