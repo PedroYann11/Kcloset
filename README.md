@@ -60,12 +60,12 @@ Outros comandos: `npm run build` (build de produção), `npm start` (servir o bu
 ## Estrutura
 
 ```
-app/                     layout, página e estilos globais
+app/                     layout, página, estilos globais e as rotas de API (importar por link)
 components/kcloset/      uma tela por arquivo + o orquestrador (KclosetApp)
 components/kcloset/ui/   primitivos (Chip, HeartButton, OutfitCanvas, GarmentView, ...)
 components/icons/        desenho das peças (silhuetas preenchidas) e cabide
 data/                    acervo de demonstração, famílias e ocasiões
-lib/                     paleta, tema, localStorage, compressão de imagem, datas e sugestões
+lib/                     paleta, tema, localStorage, imagem, link de loja, datas e sugestões
 types/                   tipos do domínio
 ```
 
@@ -85,6 +85,21 @@ sugestões). As telas são de apresentação, recebem dados e callbacks.
 - **Busca e filtro** (`ClosetScreen`): a busca varre nome, cor, estação e estilo;
   os filtros são cor, estação, estilo e favoritas. O contador de cada família reflete os
   resultados, então dá para ver em qual delas está a peça procurada.
+- **Cadastro por link** (`lib/link-import.ts`, `app/api/import/*`): a usuária cola o link
+  do produto e a peça entra pronta. O servidor lê `og:` e JSON-LD da página, e a IA
+  escolhe qual das fotos do anúncio serve de foto de closet e preenche família, tipo,
+  cor, estação e estilo. Três coisas medidas em teste real, não supostas:
+  1. Algumas lojas (Shein, Renner, Zara, Riachuelo) servem só a casca do app com
+     anti-robô, e nenhum user-agent de crawler resolve. Para essas, o caminho que
+     funciona é colar a URL da própria imagem: o CDN de imagem entrega sem bloqueio.
+     Por isso o mesmo campo aceita link de página e link de imagem.
+  2. A foto tem que passar pela nossa origem (`/api/import/image`), senão CORS impede o
+     download e o canvas contaminado faz `toDataURL` falhar no compressor.
+  3. Sem `ANTHROPIC_API_KEY` a rota de IA responde 501 e o cadastro segue manual, então
+     a chave é opcional.
+
+  O endpoint que busca URL arbitrária valida o destino (`parsePublicUrl`) para não virar
+  vetor de SSRF contra a rede interna de quem hospeda.
 - **Fotos das peças** (`lib/image.ts`): a imagem escolhida é redesenhada num `canvas`
   para no máximo 800px no lado maior e exportada em JPEG a 0.8, virando um data URL
   base64 guardado junto com a peça. Peça sem foto cai no desenho da sua forma.
@@ -115,4 +130,4 @@ sugestões). As telas são de apresentação, recebem dados e callbacks.
 
 ## Stack
 
-Next.js 15 (App Router) · TypeScript · Tailwind CSS · lucide-react
+Next.js 15 (App Router) · TypeScript · Tailwind CSS · lucide-react · @anthropic-ai/sdk
