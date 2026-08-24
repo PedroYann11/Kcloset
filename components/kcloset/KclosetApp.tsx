@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AddItemScreen } from "@/components/kcloset/AddItemScreen";
+import { AddMethodScreen } from "@/components/kcloset/AddMethodScreen";
 import { BazaarScreen } from "@/components/kcloset/BazaarScreen";
 import { BoardScreen } from "@/components/kcloset/BoardScreen";
 import { BottomNav } from "@/components/kcloset/BottomNav";
@@ -13,6 +14,7 @@ import { LookDetailScreen } from "@/components/kcloset/LookDetailScreen";
 import { LooksScreen, type LooksTab } from "@/components/kcloset/LooksScreen";
 import { OccasionResultScreen } from "@/components/kcloset/OccasionResultScreen";
 import { OccasionScreen } from "@/components/kcloset/OccasionScreen";
+import { QuickAddScreen } from "@/components/kcloset/QuickAddScreen";
 import { StatsScreen } from "@/components/kcloset/StatsScreen";
 import { ThemeScreen } from "@/components/kcloset/ThemeScreen";
 import { Toast } from "@/components/kcloset/ui/Toast";
@@ -62,7 +64,9 @@ const SCREEN_SCOPE: Record<ScreenId, ThemeScopeId> = {
   home: "home",
   closet: "closet",
   itemDetail: "closet",
+  addMethod: "closet",
   addItem: "closet",
+  quickAdd: "closet",
   occasion: "closet",
   occasionResult: "closet",
   looks: "looks",
@@ -462,24 +466,38 @@ export function KclosetApp() {
 
   /* ---------------- cadastro de peça ---------------- */
 
-  const addItem = async (draft: NewItemDraft, photoBlob?: Blob) => {
+  /**
+   * Grava a foto (se houver) e devolve a peça já com id e `photo` resolvidos.
+   * Não mexe em navegação nem toast: isso é papel de quem chama, porque o
+   * cadastro rápido chama isto várias vezes seguidas sem sair da tela.
+   */
+  const createItem = async (draft: NewItemDraft, photoBlob?: Blob): Promise<ClothingItem> => {
     const id = `item-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-
-    // Grava a foto no IndexedDB antes de a peça entrar no estado, para o
-    // object URL já ter o que mostrar assim que a tela renderiza.
     if (photoBlob) await putPhoto(id, photoBlob);
 
-    const newItem: ClothingItem = {
+    return {
       ...draft,
       id,
       createdAt: Date.now(),
       photo: photoBlob ? URL.createObjectURL(photoBlob) : undefined,
     };
+  };
 
+  const addItem = async (draft: NewItemDraft, photoBlob?: Blob) => {
+    const newItem = await createItem(draft, photoBlob);
     setUserItems((prev) => [...prev, newItem]);
     setActiveCategory(newItem.category);
     showToast("Peça cadastrada");
     goTo("closet");
+  };
+
+  /**
+   * Cadastro rápido: adiciona sem navegar nem avisar a cada toque, para dar
+   * para encadear várias peças seguidas sem sair da tela do catálogo.
+   */
+  const quickAddItem = async (draft: NewItemDraft) => {
+    const newItem = await createItem(draft);
+    setUserItems((prev) => [...prev, newItem]);
   };
 
   /* ---------------- render ---------------- */
@@ -537,7 +555,7 @@ export function KclosetApp() {
               onSave={saveLook}
               isEditing={Boolean(editingLookId)}
               onCancelEdit={cancelEdit}
-              onNewItem={() => goTo("addItem")}
+              onNewItem={() => goTo("addMethod")}
               onOpenItem={(item) => {
                 setViewingItemId(item.id);
                 goTo("itemDetail");
@@ -563,7 +581,19 @@ export function KclosetApp() {
             />
           )}
 
+          {screen === "addMethod" && (
+            <AddMethodScreen
+              onBack={() => goTo("closet")}
+              onFullForm={() => goTo("addItem")}
+              onQuickAdd={() => goTo("quickAdd")}
+            />
+          )}
+
           {screen === "addItem" && <AddItemScreen onBack={() => goTo("closet")} onSave={addItem} />}
+
+          {screen === "quickAdd" && (
+            <QuickAddScreen onBack={() => goTo("closet")} onAdd={quickAddItem} />
+          )}
 
           {screen === "looks" && (
             <LooksScreen

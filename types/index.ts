@@ -163,7 +163,9 @@ export type ScreenId =
   | "occasion"
   | "occasionResult"
   | "bazaar"
+  | "addMethod"
   | "addItem"
+  | "quickAdd"
   | "theme";
 
 /** Telas que aparecem na barra inferior. */

@@ -39,6 +39,9 @@ Outros comandos: `npm run build` (build de produção), `npm start` (servir o bu
 - **O tema é dela.** A aba Tema personaliza as cores do app inteiro (Geral) ou só de
   uma página por vez (Guarda-roupa, Closet, Looks, Bazar), a partir de quatro cores que
   derivam a paleta inteira.
+- **Cadastrar não exige foto.** "Nova peça" abre uma escolha: formulário completo (foto
+  ou link) ou catálogo rápido, toque no tipo e na cor, sem foto nenhuma. É o mesmo
+  desenho que já existe no resto do app, só colorido pela cor escolhida.
 
 ## Telas
 
@@ -47,7 +50,9 @@ Outros comandos: `npm run build` (build de produção), `npm start` (servir o bu
 | Abertura (guarda-roupa) | `components/kcloset/HomeScreen.tsx` + `WardrobeScene.tsx` |
 | Closet (acervo, busca, filtro e Espelho) | `components/kcloset/ClosetScreen.tsx` |
 | Peça em detalhe | `components/kcloset/ItemDetailScreen.tsx` |
-| Nova peça | `components/kcloset/AddItemScreen.tsx` |
+| Nova peça, escolha do método | `components/kcloset/AddMethodScreen.tsx` |
+| Nova peça, formulário completo | `components/kcloset/AddItemScreen.tsx` |
+| Nova peça, catálogo rápido | `components/kcloset/QuickAddScreen.tsx` |
 | Looks (coleções, todos, favoritos) | `components/kcloset/LooksScreen.tsx` |
 | Coleção aberta | `components/kcloset/BoardScreen.tsx` |
 | Look em detalhe | `components/kcloset/LookDetailScreen.tsx` |
@@ -100,6 +105,14 @@ sugestões). As telas são de apresentação, recebem dados e callbacks.
 
   O endpoint que busca URL arbitrária valida o destino (`parsePublicUrl`) para não virar
   vetor de SSRF contra a rede interna de quem hospeda.
+- **Catálogo rápido** (`AddMethodScreen.tsx`, `QuickAddScreen.tsx`): "Nova peça" abre
+  uma escolha entre o formulário completo e este atalho. Toque na cor, toque no tipo,
+  a peça entra sem foto, sem sair da tela, para cadastrar o guarda-roupa inteiro em
+  poucos minutos. Reaproveita o que já existe: `Garment` e `SHAPE_OPTIONS` para os
+  desenhos, `decorateItems` para colorir pela cor escolhida, `addItem` de
+  `KclosetApp.tsx` para salvar. A única diferença de infraestrutura é `quickAddItem`,
+  um irmão fino de `addItem` que não navega nem avisa a cada toque, extraído para um
+  `createItem` comum, o que dá para encadear várias peças seguidas.
 - **Fotos das peças** (`lib/image.ts`): a imagem escolhida é redesenhada num `canvas`
   para no máximo 800px no lado maior e exportada em PNG (preserva transparência,
   o que o recorte de fundo do cadastro em lote vai precisar). A proporção real da
