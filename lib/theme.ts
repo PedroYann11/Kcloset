@@ -1,5 +1,5 @@
 /**
- * Tema do Kcloset.
+ * Tema do Kloset.
  *
  * Uma receita de quatro cores (fundo, texto, destaque, tom do guarda-roupa)
  * gera o jogo inteiro de variáveis CSS que o app usa (`--c-ink`, `--c-paper`,

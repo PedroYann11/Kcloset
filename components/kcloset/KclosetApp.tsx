@@ -25,6 +25,7 @@ import {
 } from "@/data/seed-items";
 import { formatDate, todayISO } from "@/lib/date";
 import { decorateItems } from "@/lib/palette";
+import { deletePhoto, putPhoto } from "@/lib/photo-store";
 import { loadState, saveState } from "@/lib/storage";
 import { buildSuggestions, slotForCategory } from "@/lib/suggestions";
 import {
@@ -74,7 +75,7 @@ const SCREEN_SCOPE: Record<ScreenId, ThemeScopeId> = {
 };
 
 /**
- * Orquestrador do Kcloset.
+ * Orquestrador do Kloset.
  *
  * Concentra o roteador de telas e todo o estado compartilhado (acervo,
  * favoritos, looks, coleções, montagem e sugestões). As telas em si são
@@ -120,19 +121,30 @@ export function KclosetApp() {
   /* ---------------- persistência ---------------- */
 
   // Só depois de ler o localStorage é que passamos a gravar. Senão o primeiro
-  // render sobrescreveria o que a usuária já tinha salvo.
+  // render sobrescreveria o que a usuária já tinha salvo. A leitura é async
+  // porque cada foto é resolvida (ou migrada) a partir do IndexedDB.
   useEffect(() => {
-    const saved = loadState();
-    if (saved) {
-      setUserItems(saved.userItems);
-      setLooks(saved.looks);
-      setBoards(saved.boards.length ? saved.boards : SEED_BOARDS);
-      setRemovedSeedIds(saved.removedSeedIds);
-      setFavItems(new Set(saved.favItems));
-      setFavLooks(new Set(saved.favLooks));
-    }
-    setThemeState(loadThemeState());
-    setHydrated(true);
+    let cancelled = false;
+
+    (async () => {
+      const saved = await loadState();
+      if (cancelled) return;
+
+      if (saved) {
+        setUserItems(saved.userItems);
+        setLooks(saved.looks);
+        setBoards(saved.boards.length ? saved.boards : SEED_BOARDS);
+        setRemovedSeedIds(saved.removedSeedIds);
+        setFavItems(new Set(saved.favItems));
+        setFavLooks(new Set(saved.favLooks));
+      }
+      setThemeState(loadThemeState());
+      setHydrated(true);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -404,8 +416,17 @@ export function KclosetApp() {
    */
   const deleteItem = (itemId: string) => {
     const isSeed = ITEMS.some((item) => item.id === itemId);
-    if (isSeed) setRemovedSeedIds((prev) => [...prev, itemId]);
-    else setUserItems((prev) => prev.filter((item) => item.id !== itemId));
+    if (isSeed) {
+      setRemovedSeedIds((prev) => [...prev, itemId]);
+    } else {
+      setUserItems((prev) => prev.filter((item) => item.id !== itemId));
+      // A foto some com a peça: libera o object URL e apaga do IndexedDB.
+      const photo = itemMap[itemId]?.photo;
+      if (photo) URL.revokeObjectURL(photo);
+      deletePhoto(itemId).catch(() => {
+        // sem IndexedDB disponível, não há o que apagar
+      });
+    }
 
     setFavItems((prev) => {
       const next = new Set(prev);
@@ -441,11 +462,18 @@ export function KclosetApp() {
 
   /* ---------------- cadastro de peça ---------------- */
 
-  const addItem = (draft: NewItemDraft) => {
+  const addItem = async (draft: NewItemDraft, photoBlob?: Blob) => {
+    const id = `item-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+
+    // Grava a foto no IndexedDB antes de a peça entrar no estado, para o
+    // object URL já ter o que mostrar assim que a tela renderiza.
+    if (photoBlob) await putPhoto(id, photoBlob);
+
     const newItem: ClothingItem = {
       ...draft,
-      id: `item-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      id,
       createdAt: Date.now(),
+      photo: photoBlob ? URL.createObjectURL(photoBlob) : undefined,
     };
 
     setUserItems((prev) => [...prev, newItem]);

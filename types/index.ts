@@ -72,10 +72,15 @@ export type ClothingItem = {
   price?: string;
   condition?: string;
   /**
-   * Foto da peça em base64 (data URL), já redimensionada e comprimida por
-   * lib/image.ts. Ausente nas peças de seed, que caem no desenho.
+   * Foto da peça, já redimensionada por lib/image.ts. Não é o arquivo em si:
+   * é um object URL resolvido em tempo de execução a partir do que está
+   * guardado em lib/photo-store.ts (IndexedDB). Nunca é serializado junto
+   * com o resto do item, então não aparece no que lib/storage.ts salva.
+   * Ausente nas peças de seed, que caem no desenho.
    */
   photo?: string;
+  /** Largura / altura real da foto. Sem ela, o desenho cai no padrão 3:4. */
+  photoAspect?: number;
   /** Presente apenas nas peças cadastradas pela usuária. */
   createdAt?: number;
 };

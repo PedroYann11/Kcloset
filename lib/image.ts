@@ -1,22 +1,26 @@
 /**
- * Redimensiona e comprime a foto da peça antes de guardar.
+ * Redimensiona a foto da peça antes de guardar.
  *
- * A foto vai para o localStorage em base64 junto com a peça, então precisa
- * chegar pequena: ~800px no lado maior e JPEG a 0.8 deixa cada peça em torno
- * de 100–200 KB, o que cabe com folga na cota do navegador.
+ * PNG, não JPEG: a foto agora vive em IndexedDB como Blob, não mais em texto
+ * base64 dentro do localStorage, então o motivo antigo de comprimir agressivo
+ * para caber na cota não existe mais, e PNG é o formato que sabe guardar
+ * transparência, o que o recorte de fundo (fase seguinte do projeto) precisa.
+ *
+ * A proporção real da imagem é devolvida junto, para a peça aparecer inteira
+ * em vez de espremida num quadro fixo. Ver `garmentAspect` em GarmentView.
  */
 
 /** Lado maior da imagem final, em pixels. */
 export const MAX_SIDE = 800;
 
-/** Qualidade do JPEG gerado (0–1). */
-export const JPEG_QUALITY = 0.8;
+export type CompressedPhoto = {
+  /** A imagem já redimensionada, em PNG. */
+  blob: Blob;
+  /** Largura / altura da imagem final. */
+  aspect: number;
+};
 
-export async function compressImage(
-  file: File,
-  maxSide: number = MAX_SIDE,
-  quality: number = JPEG_QUALITY,
-): Promise<string> {
+export async function compressImage(file: File, maxSide: number = MAX_SIDE): Promise<CompressedPhoto> {
   const objectUrl = URL.createObjectURL(file);
 
   try {
@@ -33,12 +37,12 @@ export async function compressImage(
     const ctx = canvas.getContext("2d");
     if (!ctx) throw new Error("Não foi possível preparar a imagem neste navegador.");
 
-    // JPEG não tem canal alfa: sem esse fundo, PNGs transparentes saem com preto.
-    ctx.fillStyle = "#FFFFFF";
-    ctx.fillRect(0, 0, width, height);
     ctx.drawImage(image, 0, 0, width, height);
 
-    return canvas.toDataURL("image/jpeg", quality);
+    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"));
+    if (!blob) throw new Error("Não foi possível gerar a foto.");
+
+    return { blob, aspect: width / height };
   } finally {
     URL.revokeObjectURL(objectUrl);
   }

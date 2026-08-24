@@ -1,12 +1,12 @@
-# Kcloset
+# Kloset
 
 Guarda-roupa virtual pessoal. Mobile-first, editorial e minimalista: a usuária abre
 o guarda-roupa, monta looks com as peças que tem, guarda esses looks em coleções,
 pede sugestão por ocasião e anuncia o que não usa mais no **K Bazar**.
 
 Sem backend por enquanto. As peças de demonstração ficam em `data/seed-items.ts` e
-tudo que a usuária cria (peças novas com foto, looks, coleções e favoritos) é
-persistido no `localStorage` do próprio aparelho.
+tudo que a usuária cria (peças novas, looks, coleções e favoritos) fica no próprio
+aparelho: metadado em `localStorage`, foto em IndexedDB.
 
 ## Como rodar
 
@@ -65,7 +65,7 @@ components/kcloset/      uma tela por arquivo + o orquestrador (KclosetApp)
 components/kcloset/ui/   primitivos (Chip, HeartButton, OutfitCanvas, GarmentView, ...)
 components/icons/        desenho das peças (silhuetas preenchidas) e cabide
 data/                    acervo de demonstração, famílias e ocasiões
-lib/                     paleta, tema, localStorage, imagem, link de loja, datas e sugestões
+lib/                     paleta, tema, localStorage, fotos (IndexedDB), imagem, link de loja, datas e sugestões
 types/                   tipos do domínio
 ```
 
@@ -101,13 +101,21 @@ sugestões). As telas são de apresentação, recebem dados e callbacks.
   O endpoint que busca URL arbitrária valida o destino (`parsePublicUrl`) para não virar
   vetor de SSRF contra a rede interna de quem hospeda.
 - **Fotos das peças** (`lib/image.ts`): a imagem escolhida é redesenhada num `canvas`
-  para no máximo 800px no lado maior e exportada em JPEG a 0.8, virando um data URL
-  base64 guardado junto com a peça. Peça sem foto cai no desenho da sua forma.
-- **Persistência** (`lib/storage.ts`): uma única chave, `kcloset:v2`. Na primeira
-  leitura, um acervo gravado no formato antigo (`kcloset:v1`, seis categorias) é
-  migrado para as quatro famílias. A gravação só começa depois da leitura inicial,
-  para não sobrescrever o que já estava salvo; se a cota do navegador estourar, o app
-  avisa em vez de falhar em silêncio.
+  para no máximo 800px no lado maior e exportada em PNG (preserva transparência,
+  o que o recorte de fundo do cadastro em lote vai precisar). A proporção real da
+  imagem é devolvida junto: é o que faz a peça aparecer inteira no Espelho, em vez de
+  espremida num quadro fixo (`garmentAspect` em `GarmentView.tsx`).
+- **Persistência** (`lib/storage.ts`, `lib/photo-store.ts`): metadado (nome, cor,
+  looks, coleções, favoritos) fica numa chave só de `localStorage`, `kloset:v3`. É
+  pequeno e a leitura precisa ser rápida e síncrona. Foto é outra história: vive em
+  IndexedDB como `Blob`, porque um closet de tamanho real não cabe em texto base64
+  dentro da cota de 5MB do `localStorage` (o Stylebook mede ~100KB por peça em uso
+  real, na casa de 25 peças o `localStorage` sozinho já estoura). Item salvo no
+  formato antigo (`kcloset:v2`, com a foto embutida no próprio JSON) é migrado na
+  primeira leitura, sem perder a imagem; `kcloset:v1` (seis categorias, sem `shape`)
+  entra na mesma cadeia de legado. A gravação só começa depois da leitura inicial,
+  para não sobrescrever o que já estava salvo; se a cota estourar, o app avisa em
+  vez de falhar em silêncio.
 - **Guarda-roupa** (`WardrobeScene.tsx`): o móvel é SVG (carcaça laqueada clara, duas
   hastes, prateleiras, gavetas, portas) e as peças que dão para tocar são `<button>` de
   HTML posicionados por cima em porcentagem, então cada peça é um elemento focável de

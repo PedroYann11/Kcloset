@@ -1,17 +1,23 @@
 import { migrateCategory } from "@/data/seed-items";
+import { getPhoto, putPhoto } from "@/lib/photo-store";
 import type { Board, ClothingItem, GarmentShape, Outfit } from "@/types";
 
 /**
- * Persistência local do Kcloset.
+ * Persistência local do Kloset.
  *
- * Enquanto não existe backend, tudo que a usuária cria (peças cadastradas,
- * looks montados, coleções e favoritos) vive no localStorage do aparelho.
- * As peças de seed não são gravadas, só o delta.
+ * Metadado (nome, cor, looks, coleções, favoritos) continua em localStorage,
+ * como sempre: é pequeno e a leitura precisa ser rápida e síncrona. Foto é
+ * outra história: vive em IndexedDB (lib/photo-store.ts), como Blob de
+ * verdade, porque é o que dá espaço para um closet de tamanho real. O que sai
+ * do localStorage nunca carrega o campo `photo`; cada peça referencia a
+ * própria foto só pelo `id`.
  */
 
-const KEY = "kcloset:v2";
-/** Formato anterior, com seis categorias e sem coleções. */
-const LEGACY_KEY = "kcloset:v1";
+const KEY = "kloset:v3";
+/** Formato anterior: foto ainda embutida no JSON, mas já com 4 famílias. */
+const LEGACY_KEY_V2 = "kcloset:v2";
+/** Formato mais antigo: seis categorias, sem `shape`. */
+const LEGACY_KEY_V1 = "kcloset:v1";
 
 export type PersistedState = {
   userItems: ClothingItem[];
@@ -25,24 +31,38 @@ export type PersistedState = {
 
 export type SaveResult = "ok" | "quota" | "unavailable";
 
-export function loadState(): PersistedState | null {
+/**
+ * Lê o estado salvo. Async porque, além do JSON, cada peça com foto precisa
+ * ser resolvida no IndexedDB (ou migrada para lá, se ainda vier embutida no
+ * próprio JSON, formato de antes desta versão).
+ */
+export async function loadState(): Promise<PersistedState | null> {
   if (typeof window === "undefined") return null;
 
-  const current = read(KEY);
-  if (current) return normalize(current);
+  const found = readRaw();
+  if (!found) return null;
 
-  const legacy = read(LEGACY_KEY);
-  return legacy ? normalize(legacy, { legacy: true }) : null;
+  const state = normalize(found.data, { legacy: found.legacy });
+  state.userItems = await Promise.all(state.userItems.map(resolveItemPhoto));
+  return state;
 }
 
+/**
+ * Salva o estado. A foto de cada peça (se houver) é excluída do que vai para
+ * o JSON: ela já está no IndexedDB desde que foi capturada ou migrada, e
+ * guardá-la de novo aqui é o que estourava a cota antes.
+ */
 export function saveState(state: PersistedState): SaveResult {
   if (typeof window === "undefined") return "unavailable";
 
   try {
-    window.localStorage.setItem(KEY, JSON.stringify(state));
+    const forJson: PersistedState = {
+      ...state,
+      userItems: state.userItems.map(({ photo: _photo, ...item }) => item),
+    };
+    window.localStorage.setItem(KEY, JSON.stringify(forJson));
     return "ok";
   } catch (error) {
-    // As fotos em base64 são o que enche a cota, então vale avisar a usuária.
     return isQuotaError(error) ? "quota" : "unavailable";
   }
 }
@@ -51,14 +71,65 @@ export function clearState(): void {
   if (typeof window === "undefined") return;
   try {
     window.localStorage.removeItem(KEY);
-    window.localStorage.removeItem(LEGACY_KEY);
+    window.localStorage.removeItem(LEGACY_KEY_V2);
+    window.localStorage.removeItem(LEGACY_KEY_V1);
   } catch {
     // sem storage disponível, não há o que limpar
   }
 }
 
 /* -------------------------------------------------------------------------
-   Leitura e migração
+   Foto: migração do formato antigo (embutida) e resolução via IndexedDB
+   ------------------------------------------------------------------------- */
+
+/**
+ * Garante que a foto da peça esteja no IndexedDB e devolve a peça com
+ * `photo` já resolvido para um object URL pronto para uso, ou sem `photo`
+ * nenhum, quando a peça nunca teve foto.
+ */
+async function resolveItemPhoto(item: ClothingItem): Promise<ClothingItem> {
+  // Formato antigo: a foto ainda está embutida no próprio JSON. É o que já
+  // está salvo hoje no aparelho de quem usa o app; precisa migrar sem
+  // perder a imagem.
+  if (item.photo?.startsWith("data:")) {
+    try {
+      const blob = await dataUrlToBlob(item.photo);
+      await putPhoto(item.id, blob);
+      const aspect = item.photoAspect ?? (await measureAspect(blob).catch(() => undefined));
+      return { ...item, photo: URL.createObjectURL(blob), photoAspect: aspect };
+    } catch {
+      // Foto corrompida ou navegador sem IndexedDB: perde só a imagem, não a peça.
+      return { ...item, photo: undefined };
+    }
+  }
+
+  const blob = await getPhoto(item.id).catch(() => null);
+  if (!blob) return { ...item, photo: undefined };
+  return { ...item, photo: URL.createObjectURL(blob) };
+}
+
+function dataUrlToBlob(dataUrl: string): Promise<Blob> {
+  return fetch(dataUrl).then((response) => response.blob());
+}
+
+function measureAspect(blob: Blob): Promise<number> {
+  const url = URL.createObjectURL(blob);
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => {
+      URL.revokeObjectURL(url);
+      resolve(image.naturalWidth / image.naturalHeight);
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("Não foi possível medir a foto."));
+    };
+    image.src = url;
+  });
+}
+
+/* -------------------------------------------------------------------------
+   Leitura e migração de categoria
    ------------------------------------------------------------------------- */
 
 function read(key: string): Record<string, unknown> | null {
@@ -71,6 +142,18 @@ function read(key: string): Record<string, unknown> | null {
     // JSON corrompido ou storage bloqueado: melhor começar limpo do que quebrar.
     return null;
   }
+}
+
+/** Primeira chave, da mais nova para a mais antiga, que tiver algo salvo. */
+function readRaw(): { data: Record<string, unknown>; legacy: boolean } | null {
+  const v3 = read(KEY);
+  if (v3) return { data: v3, legacy: false };
+
+  const v2 = read(LEGACY_KEY_V2);
+  if (v2) return { data: v2, legacy: false };
+
+  const v1 = read(LEGACY_KEY_V1);
+  return v1 ? { data: v1, legacy: true } : null;
 }
 
 /** Forma do desenho a atribuir a uma peça antiga, pela categoria que ela tinha. */

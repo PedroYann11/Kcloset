@@ -29,7 +29,7 @@ export function HomeScreen({ closetOpen, onToggle, onCategory, items }: HomeScre
 
       <header className="relative px-6 pt-14 text-center">
         <h1 className="font-display text-[44px] uppercase leading-none tracking-[0.2em] text-paper">
-          Kcloset
+          Kloset
         </h1>
       </header>
 

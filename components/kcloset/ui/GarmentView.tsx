@@ -22,8 +22,8 @@ export function GarmentView({
 }: GarmentViewProps) {
   if (item.photo) {
     return (
-      // eslint-disable-next-line @next/next/no-img-element -- data URL do localStorage, sem otimização possível
-      <img src={item.photo} alt="" className={`${className} ${photoRounded} object-cover`} />
+      // eslint-disable-next-line @next/next/no-img-element -- object URL do IndexedDB, sem otimização possível
+      <img src={item.photo} alt="" className={`${className} ${photoRounded} object-contain`} />
     );
   }
 
@@ -36,9 +36,9 @@ export function GarmentView({
   );
 }
 
-/** Proporção largura/altura do desenho da peça, usada para reservar espaço. */
+/** Proporção largura/altura da peça, usada para reservar espaço. */
 export function garmentAspect(item: DecoratedItem): number {
-  if (item.photo) return 3 / 4;
+  if (item.photo) return item.photoAspect ?? 3 / 4;
   const box = GARMENT_BOX[item.drawing] ?? GARMENT_BOX.blusa;
   return box.w / box.h;
 }

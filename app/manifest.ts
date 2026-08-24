@@ -3,14 +3,14 @@ import type { MetadataRoute } from "next";
 /**
  * Manifesto do PWA.
  *
- * É o que faz o Kcloset virar ícone na tela de início e abrir em tela cheia,
+ * É o que faz o Kloset virar ícone na tela de início e abrir em tela cheia,
  * sem barra de navegador. O fundo escuro combina com a tela de abertura, então
  * a splash do Android não pisca branco antes do guarda-roupa aparecer.
  */
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "Kcloset",
-    short_name: "Kcloset",
+    name: "Kloset",
+    short_name: "Kloset",
     description: "Seu guarda-roupa virtual: organize as peças, monte looks e salve em coleções.",
     lang: "pt-BR",
     start_url: "/",

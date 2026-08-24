@@ -3,7 +3,7 @@ import { Bodoni_Moda, Italiana, Manrope } from "next/font/google";
 import { ServiceWorker } from "@/components/ServiceWorker";
 import "./globals.css";
 
-/** Marca: só o "KCLOSET" da abertura usa. */
+/** Marca: só o "KLOSET" da abertura usa. */
 const display = Italiana({
   subsets: ["latin"],
   weight: "400",
@@ -26,15 +26,15 @@ const sans = Manrope({
 });
 
 export const metadata: Metadata = {
-  title: "Kcloset · seu guarda-roupa virtual",
+  title: "Kloset · seu guarda-roupa virtual",
   description:
     "Guarda-roupa virtual pessoal: organize suas peças, monte looks, salve em coleções e anuncie no K Bazar.",
-  applicationName: "Kcloset",
+  applicationName: "Kloset",
   // Instalado no iPhone, abre em tela cheia como app. A barra de status fica
   // no estilo claro porque quase todas as telas do app têm fundo claro.
   appleWebApp: {
     capable: true,
-    title: "Kcloset",
+    title: "Kloset",
     statusBarStyle: "default",
   },
   icons: {

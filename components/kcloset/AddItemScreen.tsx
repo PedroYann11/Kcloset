@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Camera, Link2, Loader2, Trash2 } from "lucide-react";
 import { BackHeader } from "@/components/kcloset/ui/BackHeader";
 import { CATEGORY_SHAPE, Garment, SHAPE_OPTIONS } from "@/components/icons/garments";
@@ -16,11 +16,17 @@ import type { CategoryId, GarmentShape, NewItemDraft, OccasionId } from "@/types
 
 type AddItemScreenProps = {
   onBack: () => void;
-  onSave: (draft: NewItemDraft) => void;
+  /** A foto vai à parte: só o componente pai sabe o id final da peça, e é
+   *  esse id que grava o Blob no IndexedDB. */
+  onSave: (draft: NewItemDraft, photoBlob?: Blob) => void;
 };
 
 export function AddItemScreen({ onBack, onSave }: AddItemScreenProps) {
-  const [photo, setPhoto] = useState<string | undefined>();
+  // A foto em si (o Blob) só existe em memória até o salvamento. `photoPreview`
+  // é só a URL local pra mostrar na tela, nunca é o que persiste.
+  const [photoBlob, setPhotoBlob] = useState<Blob | null>(null);
+  const [photoAspect, setPhotoAspect] = useState<number | null>(null);
+  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
   const [photoBusy, setPhotoBusy] = useState(false);
   const [photoError, setPhotoError] = useState<string | null>(null);
 
@@ -46,6 +52,26 @@ export function AddItemScreen({ onBack, onSave }: AddItemScreenProps) {
 
   const canSave = name.trim().length > 0 && (!forBazaar || price.trim().length > 0);
 
+  const applyPhoto = (blob: Blob, aspect: number) => {
+    setPhotoBlob(blob);
+    setPhotoAspect(aspect);
+    setPhotoPreview(URL.createObjectURL(blob));
+  };
+
+  const clearPhoto = () => {
+    setPhotoBlob(null);
+    setPhotoAspect(null);
+    setPhotoPreview(null);
+  };
+
+  // Libera o object URL de pré-visualização sempre que ele é trocado, e
+  // também se a tela sair sem salvar.
+  useEffect(() => {
+    return () => {
+      if (photoPreview) URL.revokeObjectURL(photoPreview);
+    };
+  }, [photoPreview]);
+
   /**
    * Baixa a foto pela nossa própria origem e passa pelo mesmo compressor das
    * fotos de câmera. Buscar direto do CDN da loja não funciona por CORS.
@@ -56,7 +82,8 @@ export function AddItemScreen({ onBack, onSave }: AddItemScreenProps) {
 
     const blob = await response.blob();
     const file = new File([blob], "peca.jpg", { type: blob.type || "image/jpeg" });
-    setPhoto(await compressImage(file));
+    const compressed = await compressImage(file);
+    applyPhoto(compressed.blob, compressed.aspect);
   };
 
   const importFromLink = async () => {
@@ -120,7 +147,8 @@ export function AddItemScreen({ onBack, onSave }: AddItemScreenProps) {
     setPhotoBusy(true);
     setPhotoError(null);
     try {
-      setPhoto(await compressImage(file));
+      const compressed = await compressImage(file);
+      applyPhoto(compressed.blob, compressed.aspect);
     } catch (error) {
       setPhotoError(error instanceof Error ? error.message : "Não foi possível usar essa imagem.");
     } finally {
@@ -134,22 +162,25 @@ export function AddItemScreen({ onBack, onSave }: AddItemScreenProps) {
     event.preventDefault();
     if (!canSave) return;
 
-    onSave({
-      name: name.trim(),
-      category,
-      shape,
-      // vestido e macacão ocupam o look inteiro, dispensam a peça de baixo
-      fullBody: shape === "vestido",
-      color: color.trim() || "Sem cor",
-      season,
-      formality,
-      occasions,
-      note: note.trim(),
-      photo,
-      forBazaar,
-      price: forBazaar ? normalizePrice(price) : undefined,
-      condition: forBazaar ? condition : undefined,
-    });
+    onSave(
+      {
+        name: name.trim(),
+        category,
+        shape,
+        // vestido e macacão ocupam o look inteiro, dispensam a peça de baixo
+        fullBody: shape === "vestido",
+        color: color.trim() || "Sem cor",
+        season,
+        formality,
+        occasions,
+        note: note.trim(),
+        photoAspect: photoAspect ?? undefined,
+        forBazaar,
+        price: forBazaar ? normalizePrice(price) : undefined,
+        condition: forBazaar ? condition : undefined,
+      },
+      photoBlob ?? undefined,
+    );
   };
 
   // Pré-visualização com o tecido que a cor escrita produz.
@@ -247,9 +278,9 @@ export function AddItemScreen({ onBack, onSave }: AddItemScreenProps) {
               className="relative flex h-[132px] w-[100px] shrink-0 items-center justify-center overflow-hidden rounded-2xl border"
               style={{ background: "var(--paper-deep)", borderColor: "var(--mist)" }}
             >
-              {photo ? (
-                // eslint-disable-next-line @next/next/no-img-element -- data URL gerada no próprio navegador
-                <img src={photo} alt="Pré-visualização da peça" className="h-full w-full object-cover" />
+              {photoPreview ? (
+                // eslint-disable-next-line @next/next/no-img-element -- object URL gerada no próprio navegador
+                <img src={photoPreview} alt="Pré-visualização da peça" className="h-full w-full object-cover" />
               ) : (
                 <Garment
                   shape={shape}
@@ -275,7 +306,7 @@ export function AddItemScreen({ onBack, onSave }: AddItemScreenProps) {
                 style={{ background: "var(--ink)", color: "var(--paper)" }}
               >
                 <Camera size={15} strokeWidth={1.7} />
-                {photo ? "Trocar foto" : "Escolher foto"}
+                {photoPreview ? "Trocar foto" : "Escolher foto"}
                 <input
                   ref={fileInput}
                   type="file"
@@ -285,10 +316,10 @@ export function AddItemScreen({ onBack, onSave }: AddItemScreenProps) {
                 />
               </label>
 
-              {photo && (
+              {photoPreview && (
                 <button
                   type="button"
-                  onClick={() => setPhoto(undefined)}
+                  onClick={clearPhoto}
                   className="inline-flex min-h-[40px] items-center justify-center gap-2 rounded-full px-4 font-sans text-[12px]"
                   style={{ border: "1px solid var(--mist)", color: "var(--graphite)" }}
                 >
@@ -557,7 +588,7 @@ type Enriched = {
 const LINK_ERRORS: Record<string, string> = {
   "invalid-url": "Link inválido.",
   unreachable: "Não consegui abrir esse link.",
-  blocked: "Essa loja não abre por link. Segure a foto do produto, copie o endereço da imagem e cole aqui.",
+  blocked: "Essa loja não abre por link. Tire um print da página do produto e use o campo Foto abaixo.",
 };
 
 /**
