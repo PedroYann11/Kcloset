@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { Camera, Link2, Loader2, Trash2 } from "lucide-react";
+import { Camera, Link2, Loader2, Scissors, Trash2 } from "lucide-react";
 import { BackHeader } from "@/components/kcloset/ui/BackHeader";
+import { CutoutEditor } from "@/components/kcloset/ui/CutoutEditor";
 import { CATEGORY_SHAPE, Garment, SHAPE_OPTIONS } from "@/components/icons/garments";
 import {
   CATEGORIES,
@@ -29,6 +30,7 @@ export function AddItemScreen({ onBack, onSave }: AddItemScreenProps) {
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
   const [photoBusy, setPhotoBusy] = useState(false);
   const [photoError, setPhotoError] = useState<string | null>(null);
+  const [cutoutOpen, setCutoutOpen] = useState(false);
 
   const [name, setName] = useState("");
   const [category, setCategory] = useState<CategoryId>("tops");
@@ -200,7 +202,10 @@ export function AddItemScreen({ onBack, onSave }: AddItemScreenProps) {
   ])[0];
 
   return (
-    <form onSubmit={handleSubmit} className="flex flex-1 flex-col">
+    <>
+    {/* inert: o recorte cobre a tela inteira, então o formulário por baixo
+        não pode continuar focável nem alcançável por leitor de tela. */}
+    <form onSubmit={handleSubmit} className="flex flex-1 flex-col" inert={cutoutOpen}>
       <BackHeader title="Nova peça" onBack={onBack} />
 
       <div className="flex-1 overflow-y-auto px-6 pb-6">
@@ -319,6 +324,17 @@ export function AddItemScreen({ onBack, onSave }: AddItemScreenProps) {
               {photoPreview && (
                 <button
                   type="button"
+                  onClick={() => setCutoutOpen(true)}
+                  className="inline-flex min-h-[40px] items-center justify-center gap-2 rounded-full px-4 font-sans text-[12px]"
+                  style={{ border: "1px solid var(--mist)", color: "var(--graphite)" }}
+                >
+                  <Scissors size={14} strokeWidth={1.7} /> Recortar fundo
+                </button>
+              )}
+
+              {photoPreview && (
+                <button
+                  type="button"
                   onClick={clearPhoto}
                   className="inline-flex min-h-[40px] items-center justify-center gap-2 rounded-full px-4 font-sans text-[12px]"
                   style={{ border: "1px solid var(--mist)", color: "var(--graphite)" }}
@@ -326,7 +342,6 @@ export function AddItemScreen({ onBack, onSave }: AddItemScreenProps) {
                   <Trash2 size={14} strokeWidth={1.7} /> Remover
                 </button>
               )}
-
 
               {photoError && (
                 <p role="alert" className="font-sans text-[11px] text-blush-deep">
@@ -498,6 +513,22 @@ export function AddItemScreen({ onBack, onSave }: AddItemScreenProps) {
         </button>
       </div>
     </form>
+
+    {cutoutOpen && photoBlob && (
+      <CutoutEditor
+        sourceBlob={photoBlob}
+        onConfirm={(blob, aspect) => {
+          applyPhoto(blob, aspect);
+          setCutoutOpen(false);
+        }}
+        onUseDrawing={() => {
+          clearPhoto();
+          setCutoutOpen(false);
+        }}
+        onCancel={() => setCutoutOpen(false)}
+      />
+    )}
+    </>
   );
 }
 
