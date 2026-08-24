@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Check, Eraser, RotateCcw, Shirt } from "lucide-react";
 import { BackHeader } from "@/components/kcloset/ui/BackHeader";
 import {
   boundingBox,
   compositeAlpha,
   computeAlphaMask,
+  DEFAULT_TOLERANCE,
   eraseCircle,
   freshManualErase,
   sampleBackground,
@@ -19,7 +20,20 @@ type CutoutEditorProps = {
   onCancel: () => void;
 };
 
-const DEFAULT_TOLERANCE = 40;
+/** Fundo quadriculado por trás de um recorte com transparência. Módulo, não
+ * `useMemo`, porque o valor nunca muda; `BatchReviewScreen` reaproveita para
+ * os cards da grade de revisão, mesmo visual do editor de recorte. */
+export const CHECKERBOARD_STYLE: React.CSSProperties = {
+  backgroundImage: [
+    "linear-gradient(45deg, var(--mist) 25%, transparent 25%)",
+    "linear-gradient(-45deg, var(--mist) 25%, transparent 25%)",
+    "linear-gradient(45deg, transparent 75%, var(--mist) 75%)",
+    "linear-gradient(-45deg, transparent 75%, var(--mist) 75%)",
+  ].join(", "),
+  backgroundSize: "16px 16px",
+  backgroundPosition: "0 0, 0 8px, 8px -8px, -8px 0px",
+  backgroundColor: "var(--paper-deep)",
+};
 
 /**
  * Recortar o fundo de uma foto: régua de tolerância, apagador manual, e três
@@ -144,21 +158,6 @@ export function CutoutEditor({ sourceBlob, onConfirm, onUseDrawing, onCancel }: 
     }, "image/png");
   };
 
-  const checkerboard = useMemo(
-    () => ({
-      backgroundImage: [
-        "linear-gradient(45deg, var(--mist) 25%, transparent 25%)",
-        "linear-gradient(-45deg, var(--mist) 25%, transparent 25%)",
-        "linear-gradient(45deg, transparent 75%, var(--mist) 75%)",
-        "linear-gradient(-45deg, transparent 75%, var(--mist) 75%)",
-      ].join(", "),
-      backgroundSize: "16px 16px",
-      backgroundPosition: "0 0, 0 8px, 8px -8px, -8px 0px",
-      backgroundColor: "var(--paper-deep)",
-    }),
-    [],
-  );
-
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-paper">
       <BackHeader title="Recortar fundo" onBack={onCancel} />
@@ -166,7 +165,7 @@ export function CutoutEditor({ sourceBlob, onConfirm, onUseDrawing, onCancel }: 
       <div className="flex-1 overflow-y-auto px-6 pb-6">
         <div
           className="relative overflow-hidden rounded-2xl"
-          style={{ ...checkerboard, aspectRatio: "3 / 4" }}
+          style={{ ...CHECKERBOARD_STYLE, aspectRatio: "3 / 4" }}
         >
           <canvas
             ref={canvasRef}

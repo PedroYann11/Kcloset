@@ -166,6 +166,7 @@ export type ScreenId =
   | "addMethod"
   | "addItem"
   | "quickAdd"
+  | "batchReview"
   | "theme";
 
 /** Telas que aparecem na barra inferior. */

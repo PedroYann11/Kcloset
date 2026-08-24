@@ -46,6 +46,12 @@ Outros comandos: `npm run build` (build de produção), `npm start` (servir o bu
   recém-escolhida ganha um botão "Recortar fundo": régua de tolerância, apagador manual,
   três saídas (usar o recorte, usar a foto como veio, ou desistir e cair no desenho). O
   recorte é sempre opcional, nunca trava quem só quer guardar a foto como tirou.
+- **Cadastro em lote, pra não tirar foto peça por peça.** "Nova peça" também abre um
+  caminho pra várias fotos de uma vez (uma peça por foto) e outro pra uma foto só com
+  várias peças deitadas juntas, separadas sozinhas por recorte. As duas caem na mesma
+  grade de revisão: cada peça já recortada, com contorno vermelho na que ficou duvidosa,
+  nome e família sugeridos pela IA quando disponível, e um toque abre a peça no mesmo
+  formulário completo de sempre pra ajustar antes de confirmar o lote inteiro.
 
 ## Telas
 
@@ -58,6 +64,7 @@ Outros comandos: `npm run build` (build de produção), `npm start` (servir o bu
 | Nova peça, formulário completo | `components/kcloset/AddItemScreen.tsx` |
 | Nova peça, recortar fundo (dentro do formulário) | `components/kcloset/ui/CutoutEditor.tsx` |
 | Nova peça, catálogo rápido | `components/kcloset/QuickAddScreen.tsx` |
+| Nova peça, revisão do cadastro em lote | `components/kcloset/BatchReviewScreen.tsx` |
 | Looks (coleções, todos, favoritos) | `components/kcloset/LooksScreen.tsx` |
 | Coleção aberta | `components/kcloset/BoardScreen.tsx` |
 | Look em detalhe | `components/kcloset/LookDetailScreen.tsx` |
@@ -118,21 +125,38 @@ sugestões). As telas são de apresentação, recebem dados e callbacks.
   `KclosetApp.tsx` para salvar. A única diferença de infraestrutura é `quickAddItem`,
   um irmão fino de `addItem` que não navega nem avisa a cada toque, extraído para um
   `createItem` comum, o que dá para encadear várias peças seguidas.
-- **Recorte de fundo** (`lib/cutout.ts`, `ui/CutoutEditor.tsx`): uma foto por vez, não
-  várias peças numa foto só (isso é trabalho de outra natureza, componente conectado em
-  vez de distância de cor, e fica para uma fase futura). Por pixel, distância euclidiana
-  até a cor média de um anel nas bordas da imagem decide o alfa, com uma faixa de
-  transição para a borda sair suave; um apagador manual (`Uint8ClampedArray` numa
-  `useRef`) pode forçar um pixel a transparente por cima disso, e o alfa final é sempre
-  o menor dos dois, então a régua de tolerância nunca desfaz o que foi apagado à mão. O
-  resultado é recortado na caixa justa dos pixels visíveis antes de virar o Blob final,
-  senão a peça apareceria pequena dentro do próprio quadro no Espelho. Uma foto de até
-  800px processa em dezenas de milissegundos, então não precisa de Web Worker aqui.
-  `CutoutEditor` é um componente de edição, não uma tela: `onCancel` mantém a foto
-  original sem tocar nela, `onConfirm` chama o `applyPhoto` que já existia, `onUseDrawing`
-  chama o `clearPhoto` que já existia. Como o editor cobre a tela inteira, o formulário
-  por baixo fica `inert` enquanto ele está aberto, para não continuar focável nem
-  alcançável por leitor de tela.
+- **Recorte de fundo** (`lib/cutout.ts`, `ui/CutoutEditor.tsx`): uma foto, um recorte.
+  Por pixel, distância euclidiana até a cor média de um anel nas bordas da imagem decide
+  o alfa, com uma faixa de transição para a borda sair suave; um apagador manual
+  (`Uint8ClampedArray` numa `useRef`) pode forçar um pixel a transparente por cima disso,
+  e o alfa final é sempre o menor dos dois, então a régua de tolerância nunca desfaz o
+  que foi apagado à mão. O resultado é recortado na caixa justa dos pixels visíveis antes
+  de virar o Blob final, senão a peça apareceria pequena dentro do próprio quadro no
+  Espelho. Uma foto de até 800px processa em dezenas de milissegundos, então não precisa
+  de Web Worker aqui. `CutoutEditor` é um componente de edição, não uma tela: `onCancel`
+  mantém a foto original sem tocar nela, `onConfirm` chama o `applyPhoto` que já existia,
+  `onUseDrawing` chama o `clearPhoto` que já existia. Como o editor cobre a tela inteira,
+  o formulário por baixo fica `inert` enquanto ele está aberto, para não continuar
+  focável nem alcançável por leitor de tela.
+- **Cadastro em lote** (`lib/cutout.ts`, `BatchReviewScreen.tsx`, `app/api/import/classify`):
+  separar várias peças na mesma foto é conectividade de pixel, não só distância de cor.
+  `findIslands` usa a mesma `computeAlphaMask` de sempre pra decidir fundo e frente, e
+  soma busca de componente conectado (preenchimento por vizinhança, pilha explícita) pra
+  saber quais pixels de frente pertencem à mesma peça; duas peças encostadas sem espaço
+  nenhum entre si viram uma ilha só, é o próprio significado de componente conectado. O
+  alfa de cada ilha é um array novo do tamanho da própria caixa, não um pedaço do array
+  compartilhado, porque a caixa de duas peças vizinhas pode se sobrepor um pouco mesmo
+  sem elas se tocarem; sem isolar assim, o canto de uma peça vazaria colado na vizinha.
+  Mesma folga da Fase 3: até 6 peças numa foto de 800px, o recorte inteiro processa em
+  dezenas de milissegundos, então continua sem Web Worker. `BatchReviewScreen` é
+  autocontida como `AddItemScreen`: recebe os arquivos escolhidos e resolve sozinha o
+  recorte, a classificação em lote pela IA (`/api/import/classify`, mesma validação de
+  vocabulário da rota de link, sem `bestImage` porque cada foto já é uma peça diferente)
+  e a edição de cada candidato, sem `KclosetApp` precisar saber de nada disso. Editar um
+  candidato reaproveita o próprio `AddItemScreen` (`initialDraft`, `initialPhoto`), montado
+  com `key` do índice pra cada edição nascer limpa, sem UI paralela pra duplicar campo.
+  Card de baixa confiança (contorno vermelho) é caixa encostando na borda da foto original
+  ou pixel visível de menos dentro da própria caixa, sem precisar de IA pra desconfiar.
 - **Fotos das peças** (`lib/image.ts`): a imagem escolhida é redesenhada num `canvas`
   para no máximo 800px no lado maior e exportada em PNG (preserva transparência,
   o que o recorte de fundo do cadastro em lote vai precisar). A proporção real da

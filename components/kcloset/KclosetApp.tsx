@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AddItemScreen } from "@/components/kcloset/AddItemScreen";
 import { AddMethodScreen } from "@/components/kcloset/AddMethodScreen";
+import { BatchReviewScreen, type BatchInput } from "@/components/kcloset/BatchReviewScreen";
 import { BazaarScreen } from "@/components/kcloset/BazaarScreen";
 import { BoardScreen } from "@/components/kcloset/BoardScreen";
 import { BottomNav } from "@/components/kcloset/BottomNav";
@@ -67,6 +68,7 @@ const SCREEN_SCOPE: Record<ScreenId, ThemeScopeId> = {
   addMethod: "closet",
   addItem: "closet",
   quickAdd: "closet",
+  batchReview: "closet",
   occasion: "closet",
   occasionResult: "closet",
   looks: "looks",
@@ -115,6 +117,7 @@ export function KclosetApp() {
   const [looksTab, setLooksTab] = useState<LooksTab>("colecoes");
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [expandedBazaar, setExpandedBazaar] = useState<string | null>(null);
+  const [batchInput, setBatchInput] = useState<BatchInput | null>(null);
 
   const [toast, setToast] = useState<string | null>(null);
   const quotaWarned = useRef(false);
@@ -500,6 +503,32 @@ export function KclosetApp() {
     setUserItems((prev) => [...prev, newItem]);
   };
 
+  /** Uma peça por foto, várias fotos de uma vez: guarda os arquivos e manda
+   * pra grade de revisão, que faz o recorte sozinha. */
+  const startBatchPhotos = (files: FileList) => {
+    setBatchInput({ mode: "photos", files: Array.from(files) });
+    goTo("batchReview");
+  };
+
+  /** Várias peças deitadas juntas numa foto só: mesma ideia, mas a grade de
+   * revisão separa as peças por componente conectado antes de mostrar. */
+  const startBatchSplit = (file: File) => {
+    setBatchInput({ mode: "split", file });
+    goTo("batchReview");
+  };
+
+  /**
+   * Cadastro em lote: grava cada peça marcada na grade de revisão, um
+   * `createItem` por peça, como `addItem` e `quickAddItem` já fazem, mas
+   * com um `setUserItems` só no final, não um por peça.
+   */
+  const addManyItems = async (items: { draft: NewItemDraft; photoBlob?: Blob }[]) => {
+    const newItems = await Promise.all(items.map(({ draft, photoBlob }) => createItem(draft, photoBlob)));
+    setUserItems((prev) => [...prev, ...newItems]);
+    showToast(`${newItems.length} ${newItems.length === 1 ? "peça cadastrada" : "peças cadastradas"}`);
+    goTo("closet");
+  };
+
   /* ---------------- render ---------------- */
 
   const viewingLook = viewingLookId ? findLook(viewingLookId) : null;
@@ -586,6 +615,8 @@ export function KclosetApp() {
               onBack={() => goTo("closet")}
               onFullForm={() => goTo("addItem")}
               onQuickAdd={() => goTo("quickAdd")}
+              onBatchPhotos={startBatchPhotos}
+              onBatchSplit={startBatchSplit}
             />
           )}
 
@@ -593,6 +624,14 @@ export function KclosetApp() {
 
           {screen === "quickAdd" && (
             <QuickAddScreen onBack={() => goTo("closet")} onAdd={quickAddItem} />
+          )}
+
+          {screen === "batchReview" && batchInput && (
+            <BatchReviewScreen
+              input={batchInput}
+              onBack={() => goTo("addMethod")}
+              onSaveAll={addManyItems}
+            />
           )}
 
           {screen === "looks" && (

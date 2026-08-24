@@ -1,7 +1,7 @@
 import type { Config } from "tailwindcss";
 
 /**
- * Tokens de design do Kcloset — preto, cinza e rosa pastel.
+ * Tokens de design do Kcloset: preto, cinza e rosa pastel.
  * As cores apontam para CSS variables (app/globals.css) em formato de tripla RGB,
  * o que permite usar os modificadores de opacidade do Tailwind (`bg-ink/40`).
  * O globals.css também expõe aliases prontos (`--ink`, `--paper`, ...) para os
@@ -29,7 +29,7 @@ const config: Config = {
         sans: ["var(--font-sans)", "system-ui", "sans-serif"],
       },
       maxWidth: {
-        shell: "430px", // largura do "aparelho" — o app é mobile-first
+        shell: "430px", // largura do "aparelho", o app é mobile-first
       },
       transitionTimingFunction: {
         soft: "cubic-bezier(0.22, 1, 0.36, 1)",

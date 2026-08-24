@@ -4,7 +4,7 @@
 
 :root {
   /* Tema: preto, cinza e rosa pastel.
-     Triplas RGB — consumidas pelo tailwind.config.ts com <alpha-value>. */
+     Triplas RGB, consumidas pelo tailwind.config.ts com <alpha-value>. */
   --c-ink: 26 24 22;
   --c-ink-soft: 46 43 40;
   --c-paper: 251 249 247;
@@ -29,7 +29,7 @@
   --blush-deep: rgb(var(--c-blush-deep));
   --night: rgb(var(--c-night));
 
-  /* Móvel do guarda-roupa — laqueado claro, como o da referência. */
+  /* Móvel do guarda-roupa, laqueado claro, como o da referência. */
   --case-face: #f1eee9;
   --case-face-2: #e4dfd8;
   --case-edge: #d3ccc3;

@@ -20,30 +20,50 @@ type AddItemScreenProps = {
   /** A foto vai à parte: só o componente pai sabe o id final da peça, e é
    *  esse id que grava o Blob no IndexedDB. */
   onSave: (draft: NewItemDraft, photoBlob?: Blob) => void;
+  /**
+   * Pré-preenche o formulário. Usado pela grade de revisão do cadastro em
+   * lote, pra reaproveitar esta tela como editor de um candidato só, em vez
+   * de duplicar os campos numa UI própria; quem monta com essas props
+   * também decide o que `onSave` faz, esta tela não sabe se está num
+   * cadastro comum ou editando uma peça de um lote.
+   */
+  initialDraft?: Partial<NewItemDraft>;
+  initialPhoto?: { blob: Blob; aspect: number };
 };
 
-export function AddItemScreen({ onBack, onSave }: AddItemScreenProps) {
+export function AddItemScreen({
+  onBack,
+  onSave,
+  initialDraft,
+  initialPhoto,
+}: AddItemScreenProps) {
+  const initialCategory = initialDraft?.category ?? "tops";
+
   // A foto em si (o Blob) só existe em memória até o salvamento. `photoPreview`
   // é só a URL local pra mostrar na tela, nunca é o que persiste.
-  const [photoBlob, setPhotoBlob] = useState<Blob | null>(null);
-  const [photoAspect, setPhotoAspect] = useState<number | null>(null);
-  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+  const [photoBlob, setPhotoBlob] = useState<Blob | null>(initialPhoto?.blob ?? null);
+  const [photoAspect, setPhotoAspect] = useState<number | null>(initialPhoto?.aspect ?? null);
+  const [photoPreview, setPhotoPreview] = useState<string | null>(() =>
+    initialPhoto ? URL.createObjectURL(initialPhoto.blob) : null,
+  );
   const [photoBusy, setPhotoBusy] = useState(false);
   const [photoError, setPhotoError] = useState<string | null>(null);
   const [cutoutOpen, setCutoutOpen] = useState(false);
 
-  const [name, setName] = useState("");
-  const [category, setCategory] = useState<CategoryId>("tops");
-  const [shape, setShape] = useState<GarmentShape>(CATEGORY_SHAPE.tops);
-  const [color, setColor] = useState("");
-  const [season, setSeason] = useState(SEASONS[0]);
-  const [formality, setFormality] = useState(FORMALITIES[0]);
-  const [occasions, setOccasions] = useState<OccasionId[]>([]);
-  const [note, setNote] = useState("");
+  const [name, setName] = useState(initialDraft?.name ?? "");
+  const [category, setCategory] = useState<CategoryId>(initialCategory);
+  const [shape, setShape] = useState<GarmentShape>(
+    initialDraft?.shape ?? CATEGORY_SHAPE[initialCategory],
+  );
+  const [color, setColor] = useState(initialDraft?.color ?? "");
+  const [season, setSeason] = useState(initialDraft?.season ?? SEASONS[0]);
+  const [formality, setFormality] = useState(initialDraft?.formality ?? FORMALITIES[0]);
+  const [occasions, setOccasions] = useState<OccasionId[]>(initialDraft?.occasions ?? []);
+  const [note, setNote] = useState(initialDraft?.note ?? "");
 
-  const [forBazaar, setForBazaar] = useState(false);
-  const [price, setPrice] = useState("");
-  const [condition, setCondition] = useState(CONDITIONS[1]);
+  const [forBazaar, setForBazaar] = useState(initialDraft?.forBazaar ?? false);
+  const [price, setPrice] = useState(initialDraft?.price ?? "");
+  const [condition, setCondition] = useState(initialDraft?.condition ?? CONDITIONS[1]);
 
   const [link, setLink] = useState("");
   const [linkBusy, setLinkBusy] = useState(false);
