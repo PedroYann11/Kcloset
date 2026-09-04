@@ -1,8 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { Session } from "@supabase/supabase-js";
+import { Loader2 } from "lucide-react";
+import { AccountScreen } from "@/components/kcloset/AccountScreen";
 import { AddItemScreen } from "@/components/kcloset/AddItemScreen";
 import { AddMethodScreen } from "@/components/kcloset/AddMethodScreen";
+import { AuthGate } from "@/components/kcloset/AuthGate";
 import { BatchReviewScreen, type BatchInput } from "@/components/kcloset/BatchReviewScreen";
 import { BazaarScreen } from "@/components/kcloset/BazaarScreen";
 import { BoardScreen } from "@/components/kcloset/BoardScreen";
@@ -19,17 +23,14 @@ import { QuickAddScreen } from "@/components/kcloset/QuickAddScreen";
 import { StatsScreen } from "@/components/kcloset/StatsScreen";
 import { ThemeScreen } from "@/components/kcloset/ThemeScreen";
 import { Toast } from "@/components/kcloset/ui/Toast";
-import {
-  ITEMS,
-  SEED_BOARDS,
-  SEED_FAV_ITEMS,
-  SEED_FAV_LOOKS,
-  SEED_LOOKS,
-} from "@/data/seed-items";
+import { ITEMS } from "@/data/seed-items";
+import * as cloud from "@/lib/cloud";
 import { formatDate, todayISO } from "@/lib/date";
+import { migrateLocalCloset, releaseClaim } from "@/lib/migrate-local";
 import { decorateItems } from "@/lib/palette";
-import { deletePhoto, putPhoto } from "@/lib/photo-store";
-import { loadState, saveState } from "@/lib/storage";
+import { clearPhotos, putPhoto } from "@/lib/photo-store";
+import { clearCache, clearState, readCache, writeCache } from "@/lib/storage";
+import { supabase } from "@/lib/supabase";
 import { buildSuggestions, slotForCategory } from "@/lib/suggestions";
 import {
   DEFAULT_THEME_STATE,
@@ -57,6 +58,20 @@ import type {
 
 const EMPTY_SELECTION: BuilderSelection = { top: null, bottom: null, shoes: null, accs: [] };
 
+const EMPTY_PROFILE: cloud.Profile = {
+  displayName: null,
+  closetName: cloud.DEFAULT_CLOSET_NAME,
+  removedSeedIds: [],
+};
+
+/** Da sessão pronta até o closet na tela: ler o cache, migrar o que existia
+ *  no aparelho, buscar da nuvem. Enquanto não termina, o app fica coberto. */
+type BootState =
+  | { kind: "loading" }
+  | { kind: "migrating"; done: number; total: number }
+  | { kind: "ready" }
+  | { kind: "error"; message: string };
+
 const NAV_SCREENS: ScreenId[] = ["home", "closet", "looks", "bazaar", "theme"];
 
 /** A que página o tema de cada tela pertence, para as cores próprias de uma
@@ -69,6 +84,7 @@ const SCREEN_SCOPE: Record<ScreenId, ThemeScopeId> = {
   addItem: "closet",
   quickAdd: "closet",
   batchReview: "closet",
+  account: "global",
   occasion: "closet",
   occasionResult: "closet",
   looks: "looks",
@@ -92,14 +108,21 @@ export function KclosetApp() {
   const [screen, setScreen] = useState<ScreenId>("home");
   const [closetOpen, setClosetOpen] = useState(false);
 
-  /* ---------------- acervo e persistência ---------------- */
+  /* ---------------- conta ---------------- */
+  const [session, setSession] = useState<Session | null>(null);
+  const [authReady, setAuthReady] = useState(false);
+  const [boot, setBoot] = useState<BootState>({ kind: "loading" });
+  const [bootAttempt, setBootAttempt] = useState(0);
+  const [accountBusy, setAccountBusy] = useState(false);
+  const userId = session?.user.id ?? null;
+
+  /* ---------------- acervo ---------------- */
   const [userItems, setUserItems] = useState<ClothingItem[]>([]);
-  const [removedSeedIds, setRemovedSeedIds] = useState<string[]>([]);
-  const [looks, setLooks] = useState<Outfit[]>(SEED_LOOKS);
-  const [boards, setBoards] = useState<Board[]>(SEED_BOARDS);
-  const [favItems, setFavItems] = useState<Set<string>>(() => new Set(SEED_FAV_ITEMS));
-  const [favLooks, setFavLooks] = useState<Set<string>>(() => new Set(SEED_FAV_LOOKS));
-  const [hydrated, setHydrated] = useState(false);
+  const [profile, setProfile] = useState<cloud.Profile>(EMPTY_PROFILE);
+  const [looks, setLooks] = useState<Outfit[]>([]);
+  const [boards, setBoards] = useState<Board[]>([]);
+  const [favItems, setFavItems] = useState<Set<string>>(() => new Set());
+  const [favLooks, setFavLooks] = useState<Set<string>>(() => new Set());
 
   /* ---------------- estado de cada tela ---------------- */
   const [activeCategory, setActiveCategory] = useState<CategoryId>("tops");
@@ -124,58 +147,115 @@ export function KclosetApp() {
 
   /* ---------------- tema ---------------- */
   const [themeState, setThemeState] = useState<ThemeState>(DEFAULT_THEME_STATE);
+  const [themeReady, setThemeReady] = useState(false);
 
-  /* ---------------- persistência ---------------- */
+  /* ---------------- sessão ---------------- */
 
-  // Só depois de ler o localStorage é que passamos a gravar. Senão o primeiro
-  // render sobrescreveria o que a usuária já tinha salvo. A leitura é async
-  // porque cada foto é resolvida (ou migrada) a partir do IndexedDB.
+  // Uma leitura no começo (pra não piscar a tela de login pra quem já está
+  // logada) e uma assinatura pro resto: entrar, sair, token renovado.
   useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => {
+      setSession(data.session);
+      setAuthReady(true);
+    });
+
+    const { data } = supabase.auth.onAuthStateChange((_event, next) => setSession(next));
+    return () => data.subscription.unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    setThemeState(loadThemeState());
+    setThemeReady(true);
+  }, []);
+
+  /* ---------------- carregar o closet da conta ---------------- */
+
+  useEffect(() => {
+    if (!userId) return;
     let cancelled = false;
 
     (async () => {
-      const saved = await loadState();
-      if (cancelled) return;
+      setBoot({ kind: "loading" });
 
-      if (saved) {
-        setUserItems(saved.userItems);
-        setLooks(saved.looks);
-        setBoards(saved.boards.length ? saved.boards : SEED_BOARDS);
-        setRemovedSeedIds(saved.removedSeedIds);
-        setFavItems(new Set(saved.favItems));
-        setFavLooks(new Set(saved.favLooks));
+      // O cache primeiro: o app abre mostrando o último closet conhecido em
+      // vez de tela vazia enquanto a nuvem responde.
+      const cached = await readCache(userId).catch(() => null);
+      if (!cancelled && cached) {
+        setUserItems(cached.userItems);
+        setLooks(cached.looks);
+        setBoards(cached.boards);
+        setFavItems(new Set(cached.favItems));
+        setFavLooks(new Set(cached.favLooks));
+        setProfile((prev) => ({ ...prev, removedSeedIds: cached.removedSeedIds }));
       }
-      setThemeState(loadThemeState());
-      setHydrated(true);
+
+      try {
+        await migrateLocalCloset(userId, (progress) => {
+          if (!cancelled) setBoot({ kind: "migrating", ...progress });
+        });
+
+        const name = (session?.user.user_metadata?.name as string | undefined) ?? null;
+
+        let state = await cloud.loadAll(userId);
+        // Conta nova de verdade: nasce com as coleções e os looks de
+        // demonstração, do mesmo jeito que nascia antes no aparelho.
+        if (state.empty) {
+          await cloud.seedNewAccount(userId, name);
+          state = await cloud.loadAll(userId);
+        } else if (!state.profile.displayName && name) {
+          // Conta que veio da migração ainda não tinha nome: o Google traz.
+          await cloud.saveProfile(userId, { displayName: name });
+          state = { ...state, profile: { ...state.profile, displayName: name } };
+        }
+
+        if (cancelled) return;
+        setUserItems(state.userItems);
+        setLooks(state.looks);
+        setBoards(state.boards);
+        setFavItems(new Set(state.favItems));
+        setFavLooks(new Set(state.favLooks));
+        setProfile(state.profile);
+        setBoot({ kind: "ready" });
+      } catch (error) {
+        if (cancelled) return;
+        // Sem rede, o cache já está na tela: dá pra olhar o closet, só não
+        // dá pra mexer nele.
+        setBoot({
+          kind: "error",
+          message: error instanceof Error ? error.message : "Não foi possível abrir seu closet.",
+        });
+      }
     })();
 
     return () => {
       cancelled = true;
     };
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- roda por conta, e de novo só quando a usuária pede
+  }, [userId, bootAttempt]);
 
+  // Cópia local do que está na tela, pra próxima abertura ser instantânea.
   useEffect(() => {
-    if (!hydrated) return;
+    if (boot.kind !== "ready" || !userId) return;
 
-    const result = saveState({
+    const result = writeCache(userId, {
       userItems,
       looks,
       boards,
       favItems: [...favItems],
       favLooks: [...favLooks],
-      removedSeedIds,
+      removedSeedIds: profile.removedSeedIds,
     });
 
     if (result === "quota" && !quotaWarned.current) {
       quotaWarned.current = true;
       setToast("Armazenamento cheio. Apague alguma peça com foto");
     }
-  }, [hydrated, userItems, looks, boards, favItems, favLooks, removedSeedIds]);
+  }, [boot.kind, userId, userItems, looks, boards, favItems, favLooks, profile.removedSeedIds]);
 
   useEffect(() => {
-    if (!hydrated) return;
+    if (!themeReady) return;
     saveThemeState(themeState);
-  }, [hydrated, themeState]);
+  }, [themeReady, themeState]);
 
   useEffect(() => {
     if (!toast) return;
@@ -188,10 +268,10 @@ export function KclosetApp() {
   const items = useMemo(
     () =>
       decorateItems([
-        ...ITEMS.filter((item) => !removedSeedIds.includes(item.id)),
+        ...ITEMS.filter((item) => !profile.removedSeedIds.includes(item.id)),
         ...userItems,
       ]),
-    [userItems, removedSeedIds],
+    [userItems, profile.removedSeedIds],
   );
 
   const itemMap = useMemo<ItemMap>(
@@ -203,6 +283,15 @@ export function KclosetApp() {
 
   const showToast = (message: string) => setToast(message);
 
+  /**
+   * Escrita na nuvem em segundo plano: a tela responde na hora e a gravação
+   * segue atrás. Se falhar, a usuária fica sabendo, em vez de achar que
+   * salvou e descobrir na próxima abertura que não.
+   */
+  const push = (work: Promise<unknown>) => {
+    work.catch(() => showToast("Não foi possível salvar. Verifique a conexão"));
+  };
+
   const goTo = (next: ScreenId) => {
     setScreen(next);
     setConfirmDelete(false);
@@ -213,27 +302,43 @@ export function KclosetApp() {
     goTo("closet");
   };
 
-  const toggleFavItem = (id: string) =>
+  const toggleFavItem = (id: string) => {
+    if (!userId) return;
+    const on = !favItems.has(id);
     setFavItems((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
+      if (on) next.add(id);
+      else next.delete(id);
       return next;
     });
+    push(cloud.setFavorite(userId, "item", id, on));
+  };
 
-  const toggleFavLook = (id: string) =>
+  const toggleFavLook = (id: string) => {
+    if (!userId) return;
+    const on = !favLooks.has(id);
     setFavLooks((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
+      if (on) next.add(id);
+      else next.delete(id);
       return next;
     });
+    push(cloud.setFavorite(userId, "look", id, on));
+  };
 
   const findLook = (id: string) =>
     looks.find((look) => look.id === id) ?? suggestions.find((s) => s.id === id) ?? null;
 
-  const updateLook = (id: string, change: (look: Outfit) => Outfit) =>
-    setLooks((prev) => prev.map((look) => (look.id === id ? change(look) : look)));
+  /** Um lugar só pra alterar look: etiqueta, coleção, uso e edição passam
+   *  por aqui, então a gravação na nuvem também. */
+  const updateLook = (id: string, change: (look: Outfit) => Outfit) => {
+    const current = looks.find((look) => look.id === id);
+    if (!current || !userId) return;
+
+    const next = change(current);
+    setLooks((prev) => prev.map((look) => (look.id === id ? next : look)));
+    push(cloud.saveLook(userId, next));
+  };
 
   /* ---------------- montagem de look (aba Closet) ---------------- */
 
@@ -314,6 +419,7 @@ export function KclosetApp() {
       };
       setLooks((prev) => [newLook, ...prev]);
       setViewingLookId(newLook.id);
+      if (userId) push(cloud.saveLook(userId, newLook));
       showToast("Look salvo");
     }
 
@@ -334,6 +440,7 @@ export function KclosetApp() {
     };
     setLooks((prev) => [newLook, ...prev]);
     setViewingLookId(newLook.id);
+    if (userId) push(cloud.saveLook(userId, newLook));
     showToast("Look salvo em Looks");
     goTo("lookDetail");
   };
@@ -345,6 +452,10 @@ export function KclosetApp() {
       next.delete(id);
       return next;
     });
+    if (userId) {
+      push(cloud.deleteLook(userId, id));
+      if (favLooks.has(id)) push(cloud.setFavorite(userId, "look", id, false));
+    }
     showToast("Look removido");
     goTo("looks");
   };
@@ -354,6 +465,7 @@ export function KclosetApp() {
   const createBoard = (name: string, attachToLookId?: string) => {
     const board: Board = { id: `board-${Date.now()}`, name, createdAt: Date.now() };
     setBoards((prev) => [...prev, board]);
+    if (userId) push(cloud.saveBoard(userId, board));
     if (attachToLookId) {
       updateLook(attachToLookId, (look) => ({
         ...look,
@@ -375,12 +487,17 @@ export function KclosetApp() {
 
   const deleteBoard = (boardId: string) => {
     setBoards((prev) => prev.filter((board) => board.id !== boardId));
-    setLooks((prev) =>
-      prev.map((look) => ({
-        ...look,
-        boardIds: (look.boardIds ?? []).filter((id) => id !== boardId),
-      })),
-    );
+
+    // Look que estava na coleção precisa ser regravado sem ela.
+    const nextLooks = looks.map((look) => {
+      if (!(look.boardIds ?? []).includes(boardId)) return look;
+      const next = { ...look, boardIds: (look.boardIds ?? []).filter((id) => id !== boardId) };
+      if (userId) push(cloud.saveLook(userId, next));
+      return next;
+    });
+    setLooks(nextLooks);
+
+    if (userId) push(cloud.deleteBoard(userId, boardId));
     showToast("Coleção apagada");
     goTo("looks");
   };
@@ -422,30 +539,48 @@ export function KclosetApp() {
    * montagem e os looks salvos. Look que fica sem nenhuma peça é removido.
    */
   const deleteItem = (itemId: string) => {
+    if (!userId) return;
+
     const isSeed = ITEMS.some((item) => item.id === itemId);
     if (isSeed) {
-      setRemovedSeedIds((prev) => [...prev, itemId]);
+      // Peça de demonstração não é linha no banco: o que fica registrado é
+      // que esta usuária apagou ela, no perfil.
+      const removedSeedIds = [...profile.removedSeedIds, itemId];
+      setProfile((prev) => ({ ...prev, removedSeedIds }));
+      push(cloud.saveProfile(userId, { removedSeedIds }));
     } else {
       setUserItems((prev) => prev.filter((item) => item.id !== itemId));
-      // A foto some com a peça: libera o object URL e apaga do IndexedDB.
+      // A foto some com a peça: libera o object URL, apaga do Storage e do
+      // cache local.
       const photo = itemMap[itemId]?.photo;
       if (photo) URL.revokeObjectURL(photo);
-      deletePhoto(itemId).catch(() => {
-        // sem IndexedDB disponível, não há o que apagar
-      });
+      push(cloud.deleteItem(userId, itemId));
     }
 
+    if (favItems.has(itemId)) push(cloud.setFavorite(userId, "item", itemId, false));
     setFavItems((prev) => {
       const next = new Set(prev);
       next.delete(itemId);
       return next;
     });
 
-    setLooks((prev) =>
-      prev
-        .map((look) => ({ ...look, itemIds: look.itemIds.filter((id) => id !== itemId) }))
-        .filter((look) => look.itemIds.length > 0),
-    );
+    // Look que perde a peça é regravado; look que fica sem nenhuma peça sai.
+    const nextLooks: Outfit[] = [];
+    looks.forEach((look) => {
+      if (!look.itemIds.includes(itemId)) {
+        nextLooks.push(look);
+        return;
+      }
+      const itemIds = look.itemIds.filter((id) => id !== itemId);
+      if (itemIds.length === 0) {
+        push(cloud.deleteLook(userId, look.id));
+        return;
+      }
+      const next = { ...look, itemIds };
+      push(cloud.saveLook(userId, next));
+      nextLooks.push(next);
+    });
+    setLooks(nextLooks);
 
     setSelection((prev) => ({
       top: prev.top === itemId ? null : prev.top,
@@ -476,14 +611,18 @@ export function KclosetApp() {
    */
   const createItem = async (draft: NewItemDraft, photoBlob?: Blob): Promise<ClothingItem> => {
     const id = `item-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    // Cache local primeiro: a foto aparece na tela sem esperar a rede.
     if (photoBlob) await putPhoto(id, photoBlob);
 
-    return {
+    const item: ClothingItem = {
       ...draft,
       id,
       createdAt: Date.now(),
       photo: photoBlob ? URL.createObjectURL(photoBlob) : undefined,
     };
+
+    if (userId) push(cloud.insertItem(userId, item, photoBlob));
+    return item;
   };
 
   const addItem = async (draft: NewItemDraft, photoBlob?: Blob) => {
@@ -529,6 +668,62 @@ export function KclosetApp() {
     goTo("closet");
   };
 
+  /* ---------------- conta ---------------- */
+
+  const renameCloset = (closetName: string) => {
+    if (!userId || !closetName) return;
+    setProfile((prev) => ({ ...prev, closetName }));
+    push(cloud.saveProfile(userId, { closetName }));
+    showToast("Nome do closet salvo");
+  };
+
+  /** Sair leva junto o que ficou guardado no aparelho: closet de uma pessoa
+   *  não pode continuar em cache pra próxima que entrar neste navegador. */
+  const forgetLocal = async (id: string) => {
+    clearCache(id);
+    await clearPhotos().catch(() => {
+      // sem IndexedDB não há cache pra limpar
+    });
+    setUserItems([]);
+    setLooks([]);
+    setBoards([]);
+    setFavItems(new Set());
+    setFavLooks(new Set());
+    setProfile(EMPTY_PROFILE);
+    setSelection(EMPTY_SELECTION);
+    setScreen("home");
+    setClosetOpen(false);
+  };
+
+  const signOut = async () => {
+    if (!userId || accountBusy) return;
+    setAccountBusy(true);
+    const id = userId;
+    await supabase.auth.signOut();
+    await forgetLocal(id);
+    setAccountBusy(false);
+  };
+
+  const deleteAccount = async () => {
+    if (!userId || accountBusy) return;
+    setAccountBusy(true);
+    const id = userId;
+
+    try {
+      await cloud.deleteAccount(id);
+      // Apagou a conta: some também o closet pré-conta que ficou no aparelho,
+      // e a marca de quem tinha adotado ele.
+      clearState();
+      releaseClaim();
+      await supabase.auth.signOut();
+      await forgetLocal(id);
+    } catch {
+      showToast("Não foi possível apagar a conta agora");
+    } finally {
+      setAccountBusy(false);
+    }
+  };
+
   /* ---------------- render ---------------- */
 
   const viewingLook = viewingLookId ? findLook(viewingLookId) : null;
@@ -549,6 +744,19 @@ export function KclosetApp() {
     [themeState, screen],
   );
 
+  // Sem sessão não existe app: o closet é de alguém. Enquanto a sessão está
+  // sendo lida a tela fica escura e vazia, pra quem já está logada não ver a
+  // tela de login piscar.
+  if (!authReady || !session) {
+    return (
+      <div className="flex min-h-screen w-full items-start justify-center bg-night">
+        <div className="relative flex min-h-screen w-full max-w-shell flex-col">
+          {authReady && <AuthGate />}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex min-h-screen w-full items-start justify-center bg-night">
       <div
@@ -558,6 +766,7 @@ export function KclosetApp() {
         <div
           className="flex flex-1 flex-col overflow-x-hidden"
           style={{ paddingBottom: showNav ? 88 : 0 }}
+          inert={boot.kind !== "ready"}
         >
           {screen === "home" && (
             <HomeScreen
@@ -753,13 +962,71 @@ export function KclosetApp() {
             />
           )}
 
-          {screen === "theme" && <ThemeScreen state={themeState} onChange={setThemeState} />}
+          {screen === "theme" && (
+            <ThemeScreen
+              state={themeState}
+              onChange={setThemeState}
+              onAccount={() => goTo("account")}
+            />
+          )}
+
+          {screen === "account" && (
+            <AccountScreen
+              email={session.user.email ?? null}
+              closetName={profile.closetName}
+              busy={accountBusy}
+              onBack={() => goTo("theme")}
+              onRenameCloset={renameCloset}
+              onSignOut={() => void signOut()}
+              onDeleteAccount={() => void deleteAccount()}
+            />
+          )}
         </div>
+
+        {boot.kind !== "ready" && (
+          <BootOverlay boot={boot} onRetry={() => setBootAttempt((attempt) => attempt + 1)} />
+        )}
 
         {showNav && <BottomNav screen={screen} onNavigate={(id: NavScreenId) => goTo(id)} />}
 
         <Toast message={toast} />
       </div>
+    </div>
+  );
+}
+
+/**
+ * Cobre o app enquanto o closet da conta não está na tela. Migração é a
+ * única espera longa que a usuária vai ver, então ela conta o progresso em
+ * vez de só girar.
+ */
+function BootOverlay({ boot, onRetry }: { boot: BootState; onRetry: () => void }) {
+  return (
+    <div className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-3 bg-paper px-8 text-center">
+      {boot.kind === "error" ? (
+        <>
+          <p className="font-sans text-[13px] leading-relaxed text-blush-deep">
+            Não consegui abrir seu closet agora.
+          </p>
+          <button
+            type="button"
+            onClick={onRetry}
+            className="mt-1 rounded-full px-5 py-2.5 font-sans text-[12.5px]"
+            style={{ border: "1px solid var(--mist)", color: "var(--graphite)" }}
+          >
+            Tentar de novo
+          </button>
+        </>
+      ) : (
+        <>
+          <Loader2 size={22} className="animate-spin" color="var(--graphite)" />
+          <p className="font-sans text-[12px] text-graphite">
+            {boot.kind === "migrating"
+              ? `Subindo suas peças, ${boot.done} de ${boot.total}`
+              : "Abrindo seu closet"}
+          </p>
+        </>
+      )}
     </div>
   );
 }

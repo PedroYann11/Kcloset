@@ -4,9 +4,12 @@ Guarda-roupa virtual pessoal. Mobile-first, editorial e minimalista: a usuária 
 o guarda-roupa, monta looks com as peças que tem, guarda esses looks em coleções,
 pede sugestão por ocasião e anuncia o que não usa mais no **K Bazar**.
 
-Sem backend por enquanto. As peças de demonstração ficam em `data/seed-items.ts` e
-tudo que a usuária cria (peças novas, looks, coleções e favoritos) fica no próprio
-aparelho: metadado em `localStorage`, foto em IndexedDB.
+Cada usuária entra com a conta Google dela, e o closet vive na nuvem: Postgres pro
+metadado e Storage pra foto, num projeto Supabase próprio do Kloset. A peça de uma
+não é visível pra outra, e quem garante isso é a Row Level Security no banco, não
+checagem de tela. O aparelho fica com uma cópia do que veio de lá, pro app abrir
+instantâneo: metadado em `localStorage`, foto em IndexedDB. As peças de
+demonstração continuam em `data/seed-items.ts`.
 
 ## Como rodar
 
@@ -17,10 +20,24 @@ npm run dev
 
 Abra <http://localhost:3000>.
 
+Precisa de um `.env.local` com as chaves do projeto Supabase (as duas são
+públicas, vão pro navegador de qualquer jeito):
+
+```
+NEXT_PUBLIC_SUPABASE_URL=https://<ref>.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=<chave publicável>
+```
+
+`ANTHROPIC_API_KEY` continua opcional: sem ela, as rotas de IA respondem 501 e o
+cadastro segue manual.
+
 Outros comandos: `npm run build` (build de produção), `npm start` (servir o build).
 
 ## Ideias centrais
 
+- **O closet é de quem entrou.** Conta obrigatória, login com Google, e cada peça,
+  look e coleção pertence a uma usuária só. Na primeira entrada, o closet que já
+  existia naquele navegador sobe pra conta inteiro, sem perder foto nem look.
 - **Quatro famílias de peça**: roupas de cima, roupas de baixo, calçados e
   acessórios (`CategoryId`). É a divisão que o móvel consegue mostrar de forma
   plausível e que a montagem de look usa, um espaço por família. Vestido e macacão
@@ -57,6 +74,7 @@ Outros comandos: `npm run build` (build de produção), `npm start` (servir o bu
 
 | Tela | Arquivo |
 | --- | --- |
+| Entrar (porta de entrada) | `components/kcloset/AuthGate.tsx` |
 | Abertura (guarda-roupa) | `components/kcloset/HomeScreen.tsx` + `WardrobeScene.tsx` |
 | Closet (acervo, busca, filtro e Espelho) | `components/kcloset/ClosetScreen.tsx` |
 | Peça em detalhe | `components/kcloset/ItemDetailScreen.tsx` |
@@ -73,6 +91,7 @@ Outros comandos: `npm run build` (build de produção), `npm start` (servir o bu
 | Ocasião e sugestões | `components/kcloset/OccasionScreen.tsx`, `OccasionResultScreen.tsx` |
 | K Bazar | `components/kcloset/BazaarScreen.tsx` |
 | Tema | `components/kcloset/ThemeScreen.tsx` |
+| Conta (nome do closet, sair, apagar) | `components/kcloset/AccountScreen.tsx` |
 
 ## Estrutura
 
@@ -82,7 +101,8 @@ components/kcloset/      uma tela por arquivo + o orquestrador (KclosetApp)
 components/kcloset/ui/   primitivos (Chip, HeartButton, OutfitCanvas, GarmentView, ...)
 components/icons/        desenho das peças (silhuetas preenchidas) e cabide
 data/                    acervo de demonstração, famílias e ocasiões
-lib/                     paleta, tema, localStorage, fotos (IndexedDB), imagem, link de loja, datas e sugestões
+lib/                     nuvem (Supabase), migração, paleta, tema, cache local, imagem, link de loja, datas e sugestões
+supabase/functions/      Edge Function (apagar conta), em Deno, fora do build do Next
 types/                   tipos do domínio
 ```
 
@@ -162,17 +182,44 @@ sugestões). As telas são de apresentação, recebem dados e callbacks.
   o que o recorte de fundo do cadastro em lote vai precisar). A proporção real da
   imagem é devolvida junto: é o que faz a peça aparecer inteira no Espelho, em vez de
   espremida num quadro fixo (`garmentAspect` em `GarmentView.tsx`).
-- **Persistência** (`lib/storage.ts`, `lib/photo-store.ts`): metadado (nome, cor,
-  looks, coleções, favoritos) fica numa chave só de `localStorage`, `kloset:v3`. É
-  pequeno e a leitura precisa ser rápida e síncrona. Foto é outra história: vive em
-  IndexedDB como `Blob`, porque um closet de tamanho real não cabe em texto base64
-  dentro da cota de 5MB do `localStorage` (o Stylebook mede ~100KB por peça em uso
-  real, na casa de 25 peças o `localStorage` sozinho já estoura). Item salvo no
-  formato antigo (`kcloset:v2`, com a foto embutida no próprio JSON) é migrado na
-  primeira leitura, sem perder a imagem; `kcloset:v1` (seis categorias, sem `shape`)
-  entra na mesma cadeia de legado. A gravação só começa depois da leitura inicial,
-  para não sobrescrever o que já estava salvo; se a cota estourar, o app avisa em
-  vez de falhar em silêncio.
+- **Contas e nuvem** (`lib/supabase.ts`, `lib/cloud.ts`): projeto Supabase próprio
+  do Kloset. Cinco tabelas (`profiles`, `items`, `looks`, `boards`, `favorites`),
+  todas com RLS `user_id = auth.uid()` em select, insert, update e delete, e um
+  bucket privado `photos` com uma pasta por usuária. O id da peça continua sendo
+  texto gerado no cliente, com chave primária composta `(user_id, id)`: é isso que
+  faz a migração do closet local ser cópia direta, sem reescrever id em cascata, e
+  que impede duas usuárias de colidirem. `lib/cloud.ts` tem uma função por operação
+  em vez de um "salvar tudo", porque reescrever o estado inteiro a cada toque
+  funciona em `localStorage` e não funciona em banco. A tela responde na hora e a
+  gravação vai atrás; se falhar, a usuária é avisada em vez de achar que salvou.
+  Login é só Google, sem `@supabase/ssr` nem rota de callback: o app já é uma
+  árvore client-side abaixo de `KclosetApp`, então o próprio cliente fecha o fluxo
+  PKCE quando o Google devolve pra "/". O service worker não precisou mudar, porque
+  já ignora tudo que não é a própria origem.
+- **Migração do closet local** (`lib/migrate-local.ts`): o app rodou meses guardando
+  tudo só no aparelho, então tem closet real nesse formato. Na primeira entrada ele
+  sobe inteiro, peça por peça, com a foto indo do IndexedDB pro Storage, e a tela
+  mostra o progresso. Toda escrita é upsert, então uma tentativa interrompida no
+  meio recomeça sem duplicar; a marca de "já subi" só é gravada no fim; e o dado
+  local nunca é apagado sozinho, fica como rede de segurança. A marca é uma chave
+  só (`kloset:local-claim`, não uma por usuária) de propósito: o closet pré-conta
+  tem um dono, a primeira pessoa que entrar, senão a segunda pessoa a usar aquele
+  navegador receberia o closet da primeira dentro da conta dela.
+- **Cache local** (`lib/storage.ts`, `lib/photo-store.ts`): os dois módulos que eram
+  a casa do dado viraram o cache dele, quase sem mudar. Metadado numa chave de
+  `localStorage` por usuária (`kloset:cache:<id>`, sem o campo `photo` dentro do
+  JSON) e foto em IndexedDB como `Blob`, porque um closet de tamanho real não cabe
+  em base64 na cota de 5MB (o Stylebook mede ~100KB por peça, e na casa de 25 peças
+  o `localStorage` sozinho já estoura). Com isso o app abre mostrando o último
+  closet conhecido antes da nuvem responder, e continua abrindo sem rede. Sair da
+  conta limpa os dois, pra foto de uma pessoa não ficar no aparelho da próxima. A
+  cadeia de formatos antigos (`kcloset:v2` com a foto embutida no JSON, `kcloset:v1`
+  com seis categorias) continua sendo lida, porque é dela que a migração parte.
+- **Apagar conta** (`supabase/functions/delete-account`): o navegador apaga as
+  próprias linhas e as próprias fotos, mas não consegue apagar o usuário em si,
+  que exige chave de serviço. A Edge Function faz essa parte, e apaga só quem
+  pediu: o id sai do token apresentado, nunca do corpo da requisição. O resto vem
+  junto pelo `on delete cascade` do schema.
 - **Guarda-roupa** (`WardrobeScene.tsx`): o móvel é SVG (carcaça laqueada clara, duas
   hastes, prateleiras, gavetas, portas) e as peças que dão para tocar são `<button>` de
   HTML posicionados por cima em porcentagem, então cada peça é um elemento focável de
@@ -195,4 +242,5 @@ sugestões). As telas são de apresentação, recebem dados e callbacks.
 
 ## Stack
 
-Next.js 15 (App Router) · TypeScript · Tailwind CSS · lucide-react · @anthropic-ai/sdk
+Next.js 15 (App Router) · TypeScript · Tailwind CSS · lucide-react ·
+@supabase/supabase-js · @anthropic-ai/sdk

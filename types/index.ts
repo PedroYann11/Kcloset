@@ -167,7 +167,8 @@ export type ScreenId =
   | "addItem"
   | "quickAdd"
   | "batchReview"
-  | "theme";
+  | "theme"
+  | "account";
 
 /** Telas que aparecem na barra inferior. */
 export type NavScreenId = Extract<ScreenId, "home" | "closet" | "looks" | "bazaar" | "theme">;

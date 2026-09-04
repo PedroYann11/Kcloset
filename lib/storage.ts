@@ -3,17 +3,26 @@ import { getPhoto, putPhoto } from "@/lib/photo-store";
 import type { Board, ClothingItem, GarmentShape, Outfit } from "@/types";
 
 /**
- * Persistência local do Kloset.
+ * O que o Kloset guarda no próprio aparelho.
  *
- * Metadado (nome, cor, looks, coleções, favoritos) continua em localStorage,
- * como sempre: é pequeno e a leitura precisa ser rápida e síncrona. Foto é
- * outra história: vive em IndexedDB (lib/photo-store.ts), como Blob de
- * verdade, porque é o que dá espaço para um closet de tamanho real. O que sai
- * do localStorage nunca carrega o campo `photo`; cada peça referencia a
- * própria foto só pelo `id`.
+ * Desde que existe conta, a casa do closet é o Supabase (lib/cloud.ts). Este
+ * módulo ficou com dois papéis, os dois locais:
+ *
+ * 1. `loadState` lê o closet que existia neste navegador ANTES das contas
+ *    (`kloset:v3` e as chaves legadas). É a fonte da migração de primeira
+ *    entrada, e é por isso que a cadeia de formatos antigos continua aqui
+ *    inteira: tem closet real salvo nesse formato hoje.
+ * 2. `readCache`/`writeCache` guardam uma cópia do que veio da nuvem, por
+ *    usuária, pro app abrir instantâneo e ainda mostrar o último closet
+ *    conhecido quando a rede falha.
+ *
+ * O que vai para o JSON nunca carrega o campo `photo`: a foto mora no
+ * IndexedDB (lib/photo-store.ts), referenciada pelo `id` da peça.
  */
 
 const KEY = "kloset:v3";
+/** Cópia local do que veio da nuvem, uma por usuária. */
+const CACHE_PREFIX = "kloset:cache:";
 /** Formato anterior: foto ainda embutida no JSON, mas já com 4 famílias. */
 const LEGACY_KEY_V2 = "kcloset:v2";
 /** Formato mais antigo: seis categorias, sem `shape`. */
@@ -48,11 +57,14 @@ export async function loadState(): Promise<PersistedState | null> {
 }
 
 /**
- * Salva o estado. A foto de cada peça (se houver) é excluída do que vai para
- * o JSON: ela já está no IndexedDB desde que foi capturada ou migrada, e
- * guardá-la de novo aqui é o que estourava a cota antes.
+ * Cópia local do closet que veio da nuvem. A chave inclui o id da usuária,
+ * senão a próxima pessoa a entrar neste mesmo navegador abriria o app vendo
+ * o closet da anterior enquanto a nuvem responde.
+ *
+ * A foto de cada peça é excluída do que vai para o JSON: ela já está no
+ * IndexedDB, e guardá-la de novo aqui é o que estourava a cota antes.
  */
-export function saveState(state: PersistedState): SaveResult {
+export function writeCache(userId: string, state: PersistedState): SaveResult {
   if (typeof window === "undefined") return "unavailable";
 
   try {
@@ -60,13 +72,37 @@ export function saveState(state: PersistedState): SaveResult {
       ...state,
       userItems: state.userItems.map(({ photo: _photo, ...item }) => item),
     };
-    window.localStorage.setItem(KEY, JSON.stringify(forJson));
+    window.localStorage.setItem(CACHE_PREFIX + userId, JSON.stringify(forJson));
     return "ok";
   } catch (error) {
     return isQuotaError(error) ? "quota" : "unavailable";
   }
 }
 
+/** Último closet conhecido desta usuária, com as fotos resolvidas do cache. */
+export async function readCache(userId: string): Promise<PersistedState | null> {
+  if (typeof window === "undefined") return null;
+
+  const raw = read(CACHE_PREFIX + userId);
+  if (!raw) return null;
+
+  const state = normalize(raw);
+  state.userItems = await Promise.all(state.userItems.map(resolveItemPhoto));
+  return state;
+}
+
+export function clearCache(userId: string): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.removeItem(CACHE_PREFIX + userId);
+  } catch {
+    // sem storage disponível, não há o que limpar
+  }
+}
+
+/** Apaga o closet pré-conta deste navegador. Só é chamado quando a usuária
+ * apaga a conta inteira, nunca depois de uma migração bem-sucedida: o dado
+ * local fica como rede de segurança. */
 export function clearState(): void {
   if (typeof window === "undefined") return;
   try {

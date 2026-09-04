@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { RotateCcw } from "lucide-react";
+import { RotateCcw, UserRound } from "lucide-react";
 import {
   DEFAULT_RECIPE,
   THEME_PRESETS,
@@ -15,6 +15,7 @@ import {
 type ThemeScreenProps = {
   state: ThemeState;
   onChange: (next: ThemeState) => void;
+  onAccount: () => void;
 };
 
 const FIELDS: { key: keyof ThemeRecipe; label: string }[] = [
@@ -32,7 +33,7 @@ const FIELDS: { key: keyof ThemeRecipe; label: string }[] = [
  * O Geral vale para o app inteiro; uma página com cores próprias substitui o
  * Geral só ali.
  */
-export function ThemeScreen({ state, onChange }: ThemeScreenProps) {
+export function ThemeScreen({ state, onChange, onAccount }: ThemeScreenProps) {
   const [scope, setScope] = useState<ThemeScopeId>("global");
 
   const overriding = scope !== "global" && hasOverride(state, scope);
@@ -61,8 +62,21 @@ export function ThemeScreen({ state, onChange }: ThemeScreenProps) {
 
   return (
     <div className="flex-1 px-6 pt-12 pb-8">
-      <h1 className="font-serif text-2xl text-ink">Tema</h1>
-      <p className="mt-0.5 font-sans text-[11.5px] text-graphite">personalize as cores do app</p>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h1 className="font-serif text-2xl text-ink">Tema</h1>
+          <p className="mt-0.5 font-sans text-[11.5px] text-graphite">personalize as cores do app</p>
+        </div>
+        <button
+          type="button"
+          onClick={onAccount}
+          className="mt-1 inline-flex shrink-0 items-center gap-1.5 rounded-full px-3.5 py-2 font-sans text-[12px]"
+          style={{ border: "1px solid var(--mist)", color: "var(--graphite)" }}
+        >
+          <UserRound size={14} strokeWidth={1.7} />
+          Conta
+        </button>
+      </div>
 
       <div className="no-scrollbar mt-4 flex gap-2 overflow-x-auto">
         {THEME_SCOPES.map((item) => {
